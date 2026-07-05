@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.env
+
+# Tooling
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Secrets / local config (never commit)
+*.pem
+*.key
+secrets/
+local.settings.*
+
+# Data / models (never commit large artifacts)
+data/
+*.ckpt
+*.pt
+*.bin

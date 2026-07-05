@@ -1,0 +1,18 @@
+# Loka 平台 monorepo 根配置。
+# 各 service 是独立可安装的包(见 services/*/pyproject.toml)。
+# 现阶段用 pip 逐个安装;规模变大后可切 uv workspace。
+
+[tool.mypy]
+strict = true
+python_version = "3.11"
+exclude = ['\.venv', 'build']
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+addopts = "-ra"

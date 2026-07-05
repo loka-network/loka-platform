@@ -1,0 +1,23 @@
+# Toy 本体论 —— 仅用于验证引擎(机器)能跑。
+# 这不是真实内容;真实的领域本体论(金融/生物…)等开会定了垂直领域再填。
+version: v0.1
+
+entities:
+  - {type: Instrument}
+  - {type: Bond, subtype_of: Instrument}
+  - {type: SovereignBond, subtype_of: Bond}
+  - {type: PolicyLever}
+  - {type: Regulator}
+  - {type: CentralBank, subtype_of: Regulator}
+
+verbs:
+  - {name: REGULATE, class: institutional}
+  - {name: TRADE, class: factual}
+  - {name: ANNOUNCE, class: communicative}
+
+relations:
+  - {name: regulator-of, from: Regulator, to: Instrument}
+
+constraints:
+  # 只有 Regulator 能 REGULATE,且目标必须是 Instrument 或 PolicyLever
+  - {verb: REGULATE, agent_must_be: Regulator, target_must_be: [Instrument, PolicyLever]}

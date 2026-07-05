@@ -1,0 +1,24 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  ontology:
+    name: ontology (mypy --strict + pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: pip install -e "services/ontology[dev]"
+      - name: Type check (mypy --strict)
+        run: mypy --strict services/ontology/loka_ontology
+      - name: Lint
+        run: ruff check services/ontology
+      - name: Test
+        run: pytest services/ontology -v
