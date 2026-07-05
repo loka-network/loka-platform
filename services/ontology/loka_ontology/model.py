@@ -8,10 +8,10 @@ content) are loaded from a YAML definition file once a vertical domain is chosen
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 
 
-class VerbClass(str, Enum):
+class VerbClass(StrEnum):
     """Act-class partition of the verb vocabulary: V = Vfact ⊔ Vcomm ⊔ Vinst."""
 
     FACTUAL = "factual"  # Vfact: acts on the objective world (TRADE, INVEST, HEDGE...)

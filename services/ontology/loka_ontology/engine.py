@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .model import Ontology, VerbClass
+from .model import Ontology, Relation, VerbClass
 
 
 @dataclass(frozen=True)
@@ -60,11 +60,40 @@ class OntologyEngine:
             return True
         return sup in self.supertypes(sub)
 
+    def entity_types(self) -> list[str]:
+        """All registered entity type names (used by grounding for candidate lookup)."""
+        return list(self._onto.entities)
+
+    def subtypes_of(self, name: str) -> list[str]:
+        """All transitive descendants of ``name`` along ⪯ (excluding itself).
+
+        Inverse of ``supertypes``. e.g. subtypes_of("Instrument") includes Bond, SovereignBond.
+        """
+        return [
+            other
+            for other in self._onto.entities
+            if other != name and name in self.supertypes(other)
+        ]
+
     # ---- verb queries ----
 
     def verb_class(self, verb: str) -> VerbClass | None:
         v = self._onto.verbs.get(verb)
         return v.verb_class if v is not None else None
+
+    def verbs_of_class(self, cls: VerbClass) -> list[str]:
+        """All verb names in a given act class (Vfact / Vcomm / Vinst)."""
+        return [v.name for v in self._onto.verbs.values() if v.verb_class == cls]
+
+    # ---- relation queries ----
+
+    def relations_from(self, type_name: str) -> list[Relation]:
+        """Relations whose source type is ⪯-compatible with ``type_name``."""
+        return [r for r in self._onto.relations if self.is_subtype(type_name, r.from_type)]
+
+    def relations_to(self, type_name: str) -> list[Relation]:
+        """Relations whose target type is ⪯-compatible with ``type_name``."""
+        return [r for r in self._onto.relations if self.is_subtype(type_name, r.to_type)]
 
     # ---- typing-constraint checks (simplified CΩ) ----
 
@@ -74,7 +103,7 @@ class OntologyEngine:
         This is an early form of the G1 type check: an illegal binding returns a structured
         reason, never a silent pass.
         e.g. check_binding("REGULATE", "Regulator", "Instrument") → ok=True
-             check_binding("REGULATE", "Bond", "Instrument")      → ok=False (Bond is not a Regulator)
+             check_binding("REGULATE", "Bond", "Instrument") → ok=False (Bond is not a Regulator)
         """
         if verb not in self._onto.verbs:
             return BindingCheck(ok=False, reason=f"undefined verb: {verb}")

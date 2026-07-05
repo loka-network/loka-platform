@@ -8,7 +8,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from loka_ontology import OntologyEngine, load_ontology
 from loka_ontology.loader import OntologyLoadError, load_ontology_str
 
@@ -41,6 +40,29 @@ def test_supertypes(engine: OntologyEngine) -> None:
     assert engine.supertypes("SovereignBond") == ["Bond", "Instrument"]
 
 
+# ---- entity / relation queries ----
+
+def test_entity_types(engine: OntologyEngine) -> None:
+    assert set(engine.entity_types()) >= {"Instrument", "Bond", "SovereignBond", "Regulator"}
+
+
+def test_subtypes_of(engine: OntologyEngine) -> None:
+    assert set(engine.subtypes_of("Instrument")) == {"Bond", "SovereignBond"}
+    assert engine.subtypes_of("SovereignBond") == []  # leaf
+
+
+def test_relations_from_uses_subtyping(engine: OntologyEngine) -> None:
+    # regulator-of has source Regulator; CentralBank ⪯ Regulator → should match
+    names = [r.name for r in engine.relations_from("CentralBank")]
+    assert "regulator-of" in names
+
+
+def test_relations_to_uses_subtyping(engine: OntologyEngine) -> None:
+    # regulator-of has target Instrument; SovereignBond ⪯ Instrument → should match
+    names = [r.name for r in engine.relations_to("SovereignBond")]
+    assert "regulator-of" in names
+
+
 # ---- verbs ----
 
 def test_verb_class(engine: OntologyEngine) -> None:
@@ -49,6 +71,13 @@ def test_verb_class(engine: OntologyEngine) -> None:
     assert engine.verb_class("REGULATE") == VerbClass.INSTITUTIONAL
     assert engine.verb_class("TRADE") == VerbClass.FACTUAL
     assert engine.verb_class("NONEXISTENT") is None
+
+
+def test_verbs_of_class(engine: OntologyEngine) -> None:
+    from loka_ontology import VerbClass
+
+    assert engine.verbs_of_class(VerbClass.INSTITUTIONAL) == ["REGULATE"]
+    assert engine.verbs_of_class(VerbClass.FACTUAL) == ["TRADE"]
 
 
 # ---- typing-constraint checks (CΩ, early form) ----

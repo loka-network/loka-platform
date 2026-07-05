@@ -55,7 +55,9 @@ def _parse(raw: dict[str, Any]) -> Ontology:
         try:
             vclass = VerbClass(item["class"])
         except ValueError as exc:
-            raise OntologyLoadError(f"verb {name} has an invalid class: {item.get('class')}") from exc
+            raise OntologyLoadError(
+                f"verb {name} has an invalid class: {item.get('class')}"
+            ) from exc
         verbs[name] = Verb(name=name, verb_class=vclass)
 
     relations: list[Relation] = [
