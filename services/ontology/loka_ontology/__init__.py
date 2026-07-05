@@ -1,7 +1,7 @@
-"""loka_ontology —— 本体论引擎 Ω。
+"""loka_ontology — the ontology engine Ω.
 
-对外公开 API:加载本体论定义、查询子类型、校验类型绑定。
-下游(语义接地、Compiler)只通过这些访问本体论。
+Public API: load an ontology definition, query subtypes, check type bindings.
+Downstream services (grounding, compiler) access the ontology only through this API.
 """
 
 from .engine import BindingCheck, OntologyEngine

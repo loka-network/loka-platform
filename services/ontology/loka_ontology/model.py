@@ -1,8 +1,8 @@
-"""本体论元模型(meta-schema) —— Ω = (E, V, R, ⪯, CΩ)。
+"""Ontology meta-schema — Ω = (E, V, R, ⪯, CΩ).
 
-这是 核心:定义"用什么数据结构表达任意一个本体论"。
-注意:这里是【机器】——空的结构;具体领域的实体/关系(【内容】)由 YAML 定义文件加载,
-等定了垂直领域再填。参见 内部计划文档 的"机器 vs 内容"。
+This is the core: it defines *how any ontology is represented*, independent of domain.
+The structures here are the empty machinery; concrete domain entities/relations (the
+content) are loaded from a YAML definition file once a vertical domain is chosen.
 """
 
 from __future__ import annotations
@@ -12,19 +12,19 @@ from enum import Enum
 
 
 class VerbClass(str, Enum):
-    """动词三分类(论文 §3.1.2 / 附录 B.2:V = Vfact ⊔ Vcomm ⊔ Vinst)。"""
+    """Act-class partition of the verb vocabulary: V = Vfact ⊔ Vcomm ⊔ Vinst."""
 
-    FACTUAL = "factual"  # Vfact: 作用于客观世界(TRADE, INVEST, HEDGE...)
-    COMMUNICATIVE = "communicative"  # Vcomm: 社会性言语行为(ANNOUNCE, FORECAST...)
-    INSTITUTIONAL = "institutional"  # Vinst: 改变规范/权限(REGULATE, VOTE, AUTHORISE...)
+    FACTUAL = "factual"  # Vfact: acts on the objective world (TRADE, INVEST, HEDGE...)
+    COMMUNICATIVE = "communicative"  # Vcomm: speech acts (ANNOUNCE, FORECAST...)
+    INSTITUTIONAL = "institutional"  # Vinst: change norms/permissions (REGULATE, VOTE...)
 
 
 @dataclass(frozen=True)
 class EntityType:
-    """E: 一个实体类型;subtype_of 表达 ⪯(子类型偏序)。
+    """E: one entity type; ``subtype_of`` encodes the subtype order ⪯.
 
-    例:SovereignBond.subtype_of = "Bond",Bond.subtype_of = "Instrument"
-    → SovereignBond ⪯ Bond ⪯ Instrument。
+    e.g. SovereignBond.subtype_of = "Bond", Bond.subtype_of = "Instrument"
+    → SovereignBond ⪯ Bond ⪯ Instrument.
     """
 
     name: str
@@ -33,7 +33,7 @@ class EntityType:
 
 @dataclass(frozen=True)
 class Verb:
-    """V: 一个动词及其 act class。"""
+    """V: one verb and its act class."""
 
     name: str
     verb_class: VerbClass
@@ -41,7 +41,7 @@ class Verb:
 
 @dataclass(frozen=True)
 class Relation:
-    """R: 实体类型之间的关系(有向)。例:regulator-of(Regulator → Instrument)。"""
+    """R: a directed relation between entity types, e.g. regulator-of(Regulator → Instrument)."""
 
     name: str
     from_type: str
@@ -50,23 +50,24 @@ class Relation:
 
 @dataclass(frozen=True)
 class TypingConstraint:
-    """CΩ 里的一条类型约束(简化版)。
+    """One typing constraint in CΩ (simplified form).
 
-    规定某动词的施动者类型和目标类型必须满足的子类型条件。
-    例:REGULATE 要求 agent ⪯ Regulator 且 target ⪯ Instrument ∨ ⪯ PolicyLever。
-    注:用简化的声明式规则起步;完整 CΩ(~250 条)后续用 Soufflé/Datalog 实现。
+    Constrains the agent/target types allowed for a verb.
+    e.g. REGULATE requires agent ⪯ Regulator and target ⪯ Instrument ∨ ⪯ PolicyLever.
+    Note: this declarative form is the starting point; the full CΩ (~250 rules) will be
+    implemented with Soufflé/Datalog later.
     """
 
     verb: str
-    agent_must_be: str  # 施动者必须 ⪯ 这个类型
-    target_must_be: tuple[str, ...]  # 目标必须 ⪯ 其中之一
+    agent_must_be: str  # agent must be ⪯ this type
+    target_must_be: tuple[str, ...]  # target must be ⪯ one of these
 
 
 @dataclass
 class Ontology:
-    """一个完整的本体论 Ω = (E, V, R, ⪯, CΩ)。
+    """A complete ontology Ω = (E, V, R, ⪯, CΩ).
 
-    ⪯(子类型偏序)编码在每个 EntityType 的 subtype_of 字段里。
+    The subtype order ⪯ is encoded in each EntityType's ``subtype_of`` field.
     """
 
     version: str

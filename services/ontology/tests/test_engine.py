@@ -1,6 +1,6 @@
-"""验收测试:本体论引擎骨架能跑。
+"""Acceptance tests: the ontology engine skeleton works.
 
-演示目标(内部计划文档):加载 toy 本体论 → 回答子类型问题 → 校验类型绑定。
+Demo goal: load the toy ontology → answer subtype questions → check type bindings.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ def engine() -> OntologyEngine:
     return OntologyEngine(load_ontology(TOY))
 
 
-# ---- 子类型 ⪯ ----
+# ---- subtype ⪯ ----
 
 def test_subtype_chain_true(engine: OntologyEngine) -> None:
     # SovereignBond ⪯ Bond ⪯ Instrument
@@ -34,14 +34,14 @@ def test_subtype_reflexive(engine: OntologyEngine) -> None:
 
 def test_subtype_false(engine: OntologyEngine) -> None:
     assert engine.is_subtype("Regulator", "Instrument") is False
-    assert engine.is_subtype("Instrument", "SovereignBond") is False  # 方向相反
+    assert engine.is_subtype("Instrument", "SovereignBond") is False  # wrong direction
 
 
 def test_supertypes(engine: OntologyEngine) -> None:
     assert engine.supertypes("SovereignBond") == ["Bond", "Instrument"]
 
 
-# ---- 动词 ----
+# ---- verbs ----
 
 def test_verb_class(engine: OntologyEngine) -> None:
     from loka_ontology import VerbClass
@@ -51,17 +51,17 @@ def test_verb_class(engine: OntologyEngine) -> None:
     assert engine.verb_class("NONEXISTENT") is None
 
 
-# ---- 类型约束校验(CΩ 雏形)----
+# ---- typing-constraint checks (CΩ, early form) ----
 
 def test_binding_ok(engine: OntologyEngine) -> None:
-    # CentralBank ⪯ Regulator,SovereignBond ⪯ Instrument → 合法
+    # CentralBank ⪯ Regulator, SovereignBond ⪯ Instrument → legal
     res = engine.check_binding("REGULATE", "CentralBank", "SovereignBond")
     assert res.ok is True
     assert res.rule is not None
 
 
 def test_binding_agent_violation(engine: OntologyEngine) -> None:
-    # Bond 不是 Regulator → 非法(type_violation)
+    # Bond is not a Regulator → illegal (type_violation)
     res = engine.check_binding("REGULATE", "Bond", "Instrument")
     assert res.ok is False
     assert res.reason is not None and "type_violation" in res.reason
@@ -70,10 +70,10 @@ def test_binding_agent_violation(engine: OntologyEngine) -> None:
 def test_binding_unknown_verb(engine: OntologyEngine) -> None:
     res = engine.check_binding("FLY", "Regulator", "Instrument")
     assert res.ok is False
-    assert res.reason is not None and "未定义的动词" in res.reason
+    assert res.reason is not None and "undefined verb" in res.reason
 
 
-# ---- 加载器结构校验 ----
+# ---- loader structural checks ----
 
 def test_loader_rejects_dangling_subtype() -> None:
     bad = "version: v0\nentities:\n  - {type: Bond, subtype_of: DoesNotExist}\n"

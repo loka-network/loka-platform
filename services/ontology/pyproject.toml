@@ -1,7 +1,7 @@
 [project]
 name = "loka-ontology"
 version = "0.0.1"
-description = "本体论引擎 Ω (E, V, R, ⪯, CΩ)"
+description = "Ontology engine Ω (E, V, R, ⪯, CΩ)"
 requires-python = ">=3.11"
 dependencies = [
     "pyyaml>=6.0",

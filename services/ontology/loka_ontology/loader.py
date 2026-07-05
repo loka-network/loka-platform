@@ -1,6 +1,7 @@
-"""本体论加载器:把一份 YAML 定义文件加载成 Ontology 对象。
+"""Ontology loader: parse a YAML definition file into an Ontology object.
 
-YAML 是【内容】的载体;加载器是【机器】。加载出的对象交给 OntologyEngine 使用。
+The YAML file carries the content; the loader is the machinery. The loaded object is
+consumed by the OntologyEngine.
 """
 
 from __future__ import annotations
@@ -21,22 +22,22 @@ from .model import (
 
 
 class OntologyLoadError(ValueError):
-    """本体论定义格式错误。加载阶段就报结构化错误,不静默吞掉。"""
+    """Malformed ontology definition. Fail with a structured error at load time; never swallow."""
 
 
 def load_ontology(path: str | Path) -> Ontology:
-    """从 YAML 文件加载本体论。"""
+    """Load an ontology from a YAML file."""
     raw = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
-        raise OntologyLoadError("顶层必须是一个映射(dict)")
+        raise OntologyLoadError("top level must be a mapping (dict)")
     return _parse(raw)
 
 
 def load_ontology_str(text: str) -> Ontology:
-    """从 YAML 字符串加载(便于测试)。"""
+    """Load an ontology from a YAML string (convenient for tests)."""
     raw = yaml.safe_load(text)
     if not isinstance(raw, dict):
-        raise OntologyLoadError("顶层必须是一个映射(dict)")
+        raise OntologyLoadError("top level must be a mapping (dict)")
     return _parse(raw)
 
 
@@ -54,7 +55,7 @@ def _parse(raw: dict[str, Any]) -> Ontology:
         try:
             vclass = VerbClass(item["class"])
         except ValueError as exc:
-            raise OntologyLoadError(f"动词 {name} 的 class 非法:{item.get('class')}") from exc
+            raise OntologyLoadError(f"verb {name} has an invalid class: {item.get('class')}") from exc
         verbs[name] = Verb(name=name, verb_class=vclass)
 
     relations: list[Relation] = [
@@ -86,32 +87,32 @@ def _parse(raw: dict[str, Any]) -> Ontology:
 
 
 def _validate_references(onto: Ontology) -> None:
-    """结构完整性检查:所有引用的类型必须存在,子类型链无环。"""
+    """Structural integrity: every referenced type must exist; subtype chains must be acyclic."""
     for ent in onto.entities.values():
         if ent.subtype_of is not None and ent.subtype_of not in onto.entities:
             raise OntologyLoadError(
-                f"实体 {ent.name} 的 subtype_of={ent.subtype_of} 未定义"
+                f"entity {ent.name} has subtype_of={ent.subtype_of}, which is not defined"
             )
     for rel in onto.relations:
         for t in (rel.from_type, rel.to_type):
             if t not in onto.entities:
-                raise OntologyLoadError(f"关系 {rel.name} 引用了未定义的类型 {t}")
+                raise OntologyLoadError(f"relation {rel.name} references undefined type {t}")
     for c in onto.constraints:
         if c.verb not in onto.verbs:
-            raise OntologyLoadError(f"约束引用了未定义的动词 {c.verb}")
+            raise OntologyLoadError(f"constraint references undefined verb {c.verb}")
         for t in (c.agent_must_be, *c.target_must_be):
             if t not in onto.entities:
-                raise OntologyLoadError(f"约束引用了未定义的类型 {t}")
+                raise OntologyLoadError(f"constraint references undefined type {t}")
     _check_no_cycles(onto)
 
 
 def _check_no_cycles(onto: Ontology) -> None:
-    """子类型链不能有环(否则 ⪯ 不是偏序)。"""
+    """Subtype chains must not contain cycles (otherwise ⪯ is not a partial order)."""
     for start in onto.entities:
         seen: set[str] = set()
         cur: str | None = start
         while cur is not None:
             if cur in seen:
-                raise OntologyLoadError(f"子类型链存在环,涉及 {cur}")
+                raise OntologyLoadError(f"subtype chain contains a cycle involving {cur}")
             seen.add(cur)
             cur = onto.entities[cur].subtype_of
