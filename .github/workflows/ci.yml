@@ -19,6 +19,8 @@ jobs:
           pip install -e "libs/loka-schemas[dev]"
           pip install -e "services/adapters[dev]"
           pip install -e "services/ontology[dev]"
+          pip install -e "services/state[dev]"
+          pip install -e "services/compiler[dev]"
       - name: Lint (ruff)
         run: ruff check libs services
       - name: Type check (mypy --strict)
@@ -26,5 +28,7 @@ jobs:
           mypy --strict libs/loka-schemas/loka_schemas
           mypy --strict services/adapters/loka_adapters
           mypy --strict services/ontology/loka_ontology
+          mypy --strict services/state/loka_state
+          mypy --strict services/compiler/loka_compiler
       - name: Test
-        run: pytest libs services/adapters services/ontology -v
+        run: pytest libs services -v
