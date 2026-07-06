@@ -6,8 +6,8 @@ on:
   pull_request:
 
 jobs:
-  ontology:
-    name: ontology (mypy --strict + pytest)
+  check:
+    name: lint · type-check · test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -15,10 +15,16 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install
-        run: pip install -e "services/ontology[dev]"
+        run: |
+          pip install -e "libs/loka-schemas[dev]"
+          pip install -e "services/adapters[dev]"
+          pip install -e "services/ontology[dev]"
+      - name: Lint (ruff)
+        run: ruff check libs services
       - name: Type check (mypy --strict)
-        run: mypy --strict services/ontology/loka_ontology
-      - name: Lint
-        run: ruff check services/ontology
+        run: |
+          mypy --strict libs/loka-schemas/loka_schemas
+          mypy --strict services/adapters/loka_adapters
+          mypy --strict services/ontology/loka_ontology
       - name: Test
-        run: pytest services/ontology -v
+        run: pytest libs services/adapters services/ontology -v

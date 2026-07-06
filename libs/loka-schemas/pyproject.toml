@@ -1,0 +1,16 @@
+[project]
+name = "loka-schemas"
+version = "0.0.1"
+description = "Shared contracts across Loka services (typed data, adapter interface)"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "mypy>=1.10", "ruff>=0.5"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["loka_schemas*"]
