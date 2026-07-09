@@ -20,6 +20,12 @@ from .causal import (
     UseCase,
 )
 from .data import Interval, Lineage, TypedPredicate, TypedRow
+from .evidence import (
+    ContradictionRecord,
+    DisagreementType,
+    EvidenceRecord,
+    StudyDesign,
+)
 from .mission import (
     AuthorityRule,
     HardConstraint,
@@ -58,6 +64,11 @@ __all__ = [
     "IdentificationStatus",
     "UseCase",
     "EffectDistribution",
+    # evidence (Kt)
+    "EvidenceRecord",
+    "ContradictionRecord",
+    "StudyDesign",
+    "DisagreementType",
     # W(q, t)
     "ScenarioWorldModel",
     "ScenarioStatePackage",

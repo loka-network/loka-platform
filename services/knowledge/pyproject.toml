@@ -1,0 +1,23 @@
+[project]
+name = "loka-knowledge"
+version = "0.0.1"
+description = "Evidence & provenance layer Kt (synthesis and contradiction detection)"
+requires-python = ">=3.11"
+dependencies = ["loka-schemas"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "mypy>=1.10", "ruff>=0.5"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["loka_knowledge*"]
+
+[tool.mypy]
+strict = true
+python_version = "3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
