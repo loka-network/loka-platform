@@ -11,6 +11,14 @@ from .adapter import (
     ScopeError,
     Session,
 )
+from .causal import (
+    CausalClaim,
+    CausalLayer,
+    CausalSlice,
+    EffectDistribution,
+    IdentificationStatus,
+    UseCase,
+)
 from .data import Interval, Lineage, TypedPredicate, TypedRow
 from .mission import (
     AuthorityRule,
@@ -43,6 +51,13 @@ __all__ = [
     "AuthorityRule",
     # query
     "TypedQuery",
+    # causal
+    "CausalClaim",
+    "CausalSlice",
+    "CausalLayer",
+    "IdentificationStatus",
+    "UseCase",
+    "EffectDistribution",
     # W(q, t)
     "ScenarioWorldModel",
     "ScenarioStatePackage",

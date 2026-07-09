@@ -20,6 +20,7 @@ jobs:
           pip install -e "services/adapters[dev]"
           pip install -e "services/ontology[dev]"
           pip install -e "services/state[dev]"
+          pip install -e "services/causal[dev]"
           pip install -e "services/compiler[dev]"
       - name: Lint (ruff)
         run: ruff check libs services
@@ -29,6 +30,7 @@ jobs:
           mypy --strict services/adapters/loka_adapters
           mypy --strict services/ontology/loka_ontology
           mypy --strict services/state/loka_state
+          mypy --strict services/causal/loka_causal
           mypy --strict services/compiler/loka_compiler
       - name: Test
         run: pytest libs services -v

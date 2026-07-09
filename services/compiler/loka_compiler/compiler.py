@@ -10,6 +10,7 @@ an equal W(q, t) — the basis for replay.
 
 from __future__ import annotations
 
+from loka_causal import CausalGraph, build_slice
 from loka_ontology import OntologyEngine
 from loka_schemas import (
     ManifestPins,
@@ -40,8 +41,13 @@ def compile_wqt(
     query: TypedQuery,
     *,
     scenario_id: str,
+    causal: CausalGraph | None = None,
 ) -> ScenarioWorldModel:
-    """Compile a Scenario World Model W(q, t). Causal slice left empty for S2."""
+    """Compile a Scenario World Model W(q, t).
+
+    When a causal graph is supplied, the relevant causal-core slice Γ(q) is bound in;
+    otherwise ``causal_slice`` is left empty.
+    """
     if not mission.is_signed:
         raise MissionNotSigned("mission profile is not signed")
 
@@ -58,6 +64,7 @@ def compile_wqt(
         et_snapshot=state.snapshot_hash(),
         mission_version=mission.version,
     )
+    causal_slice = build_slice(causal, query.targets) if causal is not None else None
     return ScenarioWorldModel(
         scenario_id=scenario_id,
         query_id=query.query_id,
@@ -65,5 +72,5 @@ def compile_wqt(
         welfare=mission.welfare,
         hard_constraints=mission.hard_constraints,
         manifest=manifest,
-        causal_slice=None,  # Γ(q) filled by the causal engine (S2)
+        causal_slice=causal_slice,
     )

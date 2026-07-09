@@ -1,9 +1,9 @@
 [project]
-name = "loka-compiler"
+name = "loka-causal"
 version = "0.0.1"
-description = "World Model Compiler → W(q, t)"
+description = "Causal knowledge graph Γ, graph queries, and the admissibility matrix"
 requires-python = ">=3.11"
-dependencies = ["loka-schemas", "loka-ontology", "loka-state", "loka-causal"]
+dependencies = ["loka-schemas"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "mypy>=1.10", "ruff>=0.5"]
@@ -13,7 +13,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["loka_compiler*"]
+include = ["loka_causal*"]
 
 [tool.mypy]
 strict = true

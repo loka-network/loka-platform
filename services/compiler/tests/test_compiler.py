@@ -5,9 +5,14 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
+from loka_causal import CausalGraph
 from loka_compiler import MissionNotSigned, UnknownEntity, compile_wqt
 from loka_ontology import OntologyEngine, load_ontology_str
 from loka_schemas import (
+    CausalClaim,
+    CausalLayer,
+    EffectDistribution,
+    IdentificationStatus,
     MissionProfile,
     ScenarioWorldModel,
     TypedQuery,
@@ -88,3 +93,22 @@ def test_compile_is_deterministic() -> None:
     a = compile_wqt(make_engine(), make_state(), signed_mission(), query(), scenario_id="s1")
     b = compile_wqt(make_engine(), make_state(), signed_mission(), query(), scenario_id="s1")
     assert a == b
+
+
+def test_compile_fills_causal_slice_when_graph_supplied() -> None:
+    g = CausalGraph()
+    g.add_claim(
+        CausalClaim(
+            claim_id="e1",
+            cause="PolicyRate",
+            effect="CentralBank",
+            effect_distribution=EffectDistribution(mean=-1.0, se=0.2),
+            identification_status=IdentificationStatus.STRUCTURAL,
+            layer=CausalLayer.STRUCTURAL,
+        )
+    )
+    w = compile_wqt(
+        make_engine(), make_state(), signed_mission(), query(), scenario_id="s1", causal=g
+    )
+    assert w.causal_slice is not None
+    assert any(c.claim_id == "e1" for c in w.causal_slice.claims)

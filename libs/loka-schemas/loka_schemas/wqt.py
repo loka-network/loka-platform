@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+from .causal import CausalSlice
 from .mission import HardConstraint, WelfareFunctional
 
 
@@ -40,4 +41,4 @@ class ScenarioWorldModel:
     welfare: WelfareFunctional
     hard_constraints: tuple[HardConstraint, ...]
     manifest: ManifestPins
-    causal_slice: object | None = None  # Γ(q); filled by the causal engine (S2)
+    causal_slice: CausalSlice | None = None  # Γ(q); filled by the causal engine
