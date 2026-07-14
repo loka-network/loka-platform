@@ -3,10 +3,19 @@ name = "loka-compiler"
 version = "0.0.1"
 description = "World Model Compiler → W(q, t)"
 requires-python = ">=3.11"
-dependencies = ["loka-schemas", "loka-ontology", "loka-state", "loka-causal"]
+# Runtime depends only on the contracts; concrete engines are injected by the caller
+# (they implement the OntologyView / StateView / CausalSlicer ports).
+dependencies = ["loka-schemas"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "mypy>=1.10", "ruff>=0.5"]
+dev = [
+    "pytest>=8.0",
+    "mypy>=1.10",
+    "ruff>=0.5",
+    "loka-ontology",
+    "loka-state",
+    "loka-causal",
+]
 
 [build-system]
 requires = ["setuptools>=68"]

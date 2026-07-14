@@ -12,9 +12,14 @@ is dependency-free for tests and local development.
 from __future__ import annotations
 
 from collections import defaultdict, deque
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 
-from loka_schemas import CausalClaim, CausalLayer, IdentificationStatus
+from loka_schemas import (
+    CausalClaim,
+    CausalLayer,
+    CausalSlice,
+    IdentificationStatus,
+)
 
 CORE_LAYERS = frozenset({CausalLayer.STRUCTURAL, CausalLayer.EMPIRICAL})
 
@@ -112,4 +117,15 @@ class CausalGraph:
             if c.cause in node_set
             and c.effect in node_set
             and (layers is None or c.layer in layers)
+        )
+
+    def build_slice(
+        self, targets: Sequence[str], *, layers: frozenset[CausalLayer] | None = CORE_LAYERS
+    ) -> CausalSlice:
+        """Γ(q): the targets, their ancestors, and the claims among them (causal core only)."""
+        relevant: set[str] = set(targets)
+        for t in targets:
+            relevant |= self.ancestors(t, layers=layers)
+        return CausalSlice(
+            targets=tuple(targets), claims=self.claims_between(relevant, layers=layers)
         )

@@ -95,6 +95,16 @@ def test_compile_is_deterministic() -> None:
     assert a == b
 
 
+def test_engines_satisfy_ports() -> None:
+    # the concrete engines are swappable because they satisfy the port protocols;
+    # a real backend (Neo4j / Postgres) can be dropped in by satisfying the same ports.
+    from loka_schemas import CausalSlicer, OntologyView, StateView
+
+    assert isinstance(make_engine(), OntologyView)
+    assert isinstance(make_state(), StateView)
+    assert isinstance(CausalGraph(), CausalSlicer)
+
+
 def test_compile_fills_causal_slice_when_graph_supplied() -> None:
     g = CausalGraph()
     g.add_claim(

@@ -33,6 +33,7 @@ from .mission import (
     WelfareFunctional,
     WelfareTerm,
 )
+from .ports import CausalSlicer, OntologyView, StateView
 from .query import TypedQuery
 from .wqt import ManifestPins, ScenarioStatePackage, ScenarioWorldModel
 
@@ -57,6 +58,10 @@ __all__ = [
     "AuthorityRule",
     # query
     "TypedQuery",
+    # ports (swappable-backend interfaces)
+    "OntologyView",
+    "StateView",
+    "CausalSlicer",
     # causal
     "CausalClaim",
     "CausalSlice",

@@ -10,16 +10,16 @@ an equal W(q, t) — the basis for replay.
 
 from __future__ import annotations
 
-from loka_causal import CausalGraph, build_slice
-from loka_ontology import OntologyEngine
 from loka_schemas import (
+    CausalSlicer,
     ManifestPins,
     MissionProfile,
+    OntologyView,
     ScenarioStatePackage,
     ScenarioWorldModel,
+    StateView,
     TypedQuery,
 )
-from loka_state import WorldState
 
 
 class CompileError(Exception):
@@ -35,18 +35,19 @@ class UnknownEntity(CompileError):
 
 
 def compile_wqt(
-    engine: OntologyEngine,
-    state: WorldState,
+    engine: OntologyView,
+    state: StateView,
     mission: MissionProfile,
     query: TypedQuery,
     *,
     scenario_id: str,
-    causal: CausalGraph | None = None,
+    causal: CausalSlicer | None = None,
 ) -> ScenarioWorldModel:
     """Compile a Scenario World Model W(q, t).
 
-    When a causal graph is supplied, the relevant causal-core slice Γ(q) is bound in;
-    otherwise ``causal_slice`` is left empty.
+    Consumes engine / state / causal through their port interfaces, so any implementation
+    (in-memory reference or a real backend) can be supplied. When a causal slicer is given,
+    the relevant causal-core slice Γ(q) is bound in; otherwise ``causal_slice`` is empty.
     """
     if not mission.is_signed:
         raise MissionNotSigned("mission profile is not signed")
@@ -64,7 +65,7 @@ def compile_wqt(
         et_snapshot=state.snapshot_hash(),
         mission_version=mission.version,
     )
-    causal_slice = build_slice(causal, query.targets) if causal is not None else None
+    causal_slice = causal.build_slice(query.targets) if causal is not None else None
     return ScenarioWorldModel(
         scenario_id=scenario_id,
         query_id=query.query_id,
