@@ -45,6 +45,7 @@ class EvidenceRecord:
     estimate: EffectDistribution
     identification_status: IdentificationStatus
     assumptions: tuple[str, ...] = ()
+    context: str | None = None  # regime / jurisdiction; drives hierarchical pooling
 
 
 @dataclass(frozen=True)

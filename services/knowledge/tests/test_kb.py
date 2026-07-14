@@ -13,7 +13,9 @@ from loka_schemas import (
 )
 
 
-def ev(eid: str, claim: str, mean: float, se: float) -> EvidenceRecord:
+def ev(
+    eid: str, claim: str, mean: float, se: float, context: str | None = None
+) -> EvidenceRecord:
     return EvidenceRecord(
         evidence_id=eid,
         claim_id=claim,
@@ -21,6 +23,7 @@ def ev(eid: str, claim: str, mean: float, se: float) -> EvidenceRecord:
         study_design=StudyDesign.DID,
         estimate=EffectDistribution(mean=mean, se=se),
         identification_status=IdentificationStatus.QUASI_EXPERIMENTAL,
+        context=context,
     )
 
 
@@ -66,3 +69,37 @@ def test_synthesize_without_evidence_raises() -> None:
     kb = KnowledgeBase()
     with pytest.raises(KnowledgeError):
         kb.synthesize("missing")
+
+
+def test_homogeneous_evidence_has_low_heterogeneity() -> None:
+    kb = KnowledgeBase()
+    for i, m in enumerate([-1.0, -1.02, -0.98]):
+        kb.add_evidence(ev(f"e{i}", "c5", m, 0.2))
+    res = kb.synthesize("c5")
+    assert res.i_squared < 0.5
+    assert not res.is_heterogeneous
+    # random ≈ fixed when homogeneous
+    assert res.pooled.se == pytest.approx(res.fixed.se, abs=0.02)
+
+
+def test_random_effects_widens_interval_under_heterogeneity() -> None:
+    kb = KnowledgeBase()
+    # spread-out estimates with tight SEs → high heterogeneity
+    for i, m in enumerate([-2.0, -1.0, 0.0]):
+        kb.add_evidence(ev(f"e{i}", "c6", m, 0.1))
+    res = kb.synthesize("c6")
+    assert res.is_heterogeneous
+    # random-effects SE is wider than fixed-effects SE because it accounts for τ²
+    assert res.pooled.se > res.fixed.se
+
+
+def test_hierarchical_keeps_per_context_estimates() -> None:
+    kb = KnowledgeBase()
+    kb.add_evidence(ev("a", "c7", -1.5, 0.2, context="advanced"))
+    kb.add_evidence(ev("b", "c7", -1.4, 0.2, context="advanced"))
+    kb.add_evidence(ev("c", "c7", -0.3, 0.2, context="emerging"))
+    res = kb.synthesize("c7")
+    assert set(res.per_context) == {"advanced", "emerging"}
+    # per-context posteriors are retained, not collapsed
+    assert res.per_context["advanced"].mean == pytest.approx(-1.45, abs=0.1)
+    assert res.per_context["emerging"].mean == pytest.approx(-0.3, abs=0.1)
