@@ -14,10 +14,14 @@ from .model import (
     Verb,
     VerbClass,
 )
+from .souffle_checker import SouffleTypeChecker, SouffleUnavailable, souffle_available
 
 __all__ = [
     "OntologyEngine",
     "BindingCheck",
+    "SouffleTypeChecker",
+    "SouffleUnavailable",
+    "souffle_available",
     "load_ontology",
     "load_ontology_str",
     "OntologyLoadError",
