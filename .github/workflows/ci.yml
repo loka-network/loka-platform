@@ -17,10 +17,10 @@ jobs:
       - name: Install
         run: |
           pip install -e "libs/loka-schemas[dev]"
-          pip install -e "services/adapters[dev]"
+          pip install -e "services/adapters[dev,postgres]"
           pip install -e "services/ontology[dev]"
           pip install -e "services/state[dev]"
-          pip install -e "services/causal[dev]"
+          pip install -e "services/causal[dev,neo4j]"
           pip install -e "services/knowledge[dev]"
           pip install -e "services/compiler[dev]"
       - name: Lint (ruff)

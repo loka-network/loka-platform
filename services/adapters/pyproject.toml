@@ -7,6 +7,7 @@ dependencies = ["loka-schemas"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "mypy>=1.10", "ruff>=0.5"]
+postgres = ["psycopg[binary]>=3.1"]  # optional: production Postgres-backed adapter
 
 [build-system]
 requires = ["setuptools>=68"]

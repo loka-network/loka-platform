@@ -127,12 +127,34 @@ Python 3.11+, `mypy --strict`, `ruff`. Each service is an installable package.
 ```bash
 python -m venv .venv && source .venv/bin/activate
 for pkg in libs/loka-schemas services/adapters services/ontology \
-           services/state services/causal services/compiler; do
+           services/state services/causal services/knowledge services/compiler; do
   pip install -e "$pkg[dev]"
 done
 
 ruff check libs services
 pytest libs services -v
+```
+
+### Backends (swappable via ports)
+
+Each engine ships an in-memory reference implementation (used by the unit tests) and an
+optional production backend selected behind the same port:
+
+| Port | Reference | Production backend | Extra |
+| --- | --- | --- | --- |
+| data adapter | `InMemoryAdapter` | `PostgresAdapter` | `services/adapters[postgres]` |
+| causal graph | `CausalGraph` | `Neo4jCausalGraph` | `services/causal[neo4j]` |
+
+Full-strength CΩ type checking uses Soufflé when the `souffle` binary is present (the
+pure-Python checker is the default).
+
+Integration tests for the production backends are skipped unless a database is reachable:
+
+```bash
+docker compose -f infra/docker-compose.yml up -d
+export LOKA_PG_DSN="postgresql://loka:loka@localhost:5432/loka"
+export NEO4J_URI="bolt://localhost:7687" NEO4J_USER=neo4j NEO4J_PASSWORD=loka_password
+pytest libs services -v     # backend integration tests now run
 ```
 
 ## Engineering principles

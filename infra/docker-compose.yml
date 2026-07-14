@@ -1,0 +1,51 @@
+# Local / cloud backends for Loka integration tests and dev.
+#
+#   docker compose -f infra/docker-compose.yml up -d
+#
+# Then export the DSNs and run the gated integration tests:
+#   export LOKA_PG_DSN="postgresql://loka:loka@localhost:5432/loka"
+#   export NEO4J_URI="bolt://localhost:7687" NEO4J_USER=neo4j NEO4J_PASSWORD=loka_password
+#   pytest libs services -v            # integration tests now run instead of skipping
+#
+# These are dev/test defaults. Do NOT use these credentials in production.
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: loka
+      POSTGRES_PASSWORD: loka
+      POSTGRES_DB: loka
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U loka"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  neo4j:
+    image: neo4j:5
+    environment:
+      NEO4J_AUTH: neo4j/loka_password
+    ports:
+      - "7474:7474"   # HTTP browser
+      - "7687:7687"   # Bolt
+    volumes:
+      - neo4jdata:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:7474 >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+
+volumes:
+  pgdata:
+  neo4jdata:
