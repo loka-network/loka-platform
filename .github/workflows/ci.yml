@@ -26,13 +26,16 @@ jobs:
       - name: Lint (ruff)
         run: ruff check libs services
       - name: Type check (mypy --strict)
-        run: |
-          mypy --strict libs/loka-schemas/loka_schemas
-          mypy --strict services/adapters/loka_adapters
-          mypy --strict services/ontology/loka_ontology
-          mypy --strict services/state/loka_state
-          mypy --strict services/causal/loka_causal
-          mypy --strict services/knowledge/loka_knowledge
-          mypy --strict services/compiler/loka_compiler
+        # One invocation over all package source roots so cross-package imports
+        # (editable installs) resolve; per-package invocations cannot see siblings.
+        run: >
+          mypy --strict
+          libs/loka-schemas/loka_schemas
+          services/adapters/loka_adapters
+          services/ontology/loka_ontology
+          services/state/loka_state
+          services/causal/loka_causal
+          services/knowledge/loka_knowledge
+          services/compiler/loka_compiler
       - name: Test
         run: pytest libs services -v
