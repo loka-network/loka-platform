@@ -157,6 +157,30 @@ export NEO4J_URI="bolt://localhost:7687" NEO4J_USER=neo4j NEO4J_PASSWORD=loka_pa
 pytest libs services -v     # backend integration tests now run
 ```
 
+## HTTP API
+
+A minimal FastAPI service exposes the foundation. It ships a zero-config in-memory world, so
+it runs immediately (production wires real backends in `loka_api.world`).
+
+```bash
+pip install -e "services/api[dev]"
+uvicorn loka_api.app:app --reload          # http://localhost:8000/docs
+
+curl localhost:8000/health
+curl -X POST localhost:8000/compile -H 'content-type: application/json' \
+     -d '{"query_id":"q1","task_type":"counterfactual","targets":["GDP"]}'
+# → the compiled W(q, t): state slice, causal slice Γ(q), welfare, constraints, manifest pins
+```
+
+Or run the whole stack (API + Postgres + Neo4j + Redis) with Docker:
+
+```bash
+docker compose -f infra/docker-compose.yml up -d --build   # API on :8000
+```
+
+Endpoints: `GET /health`, `POST /compile` (typed query q* → W(q, t)). The natural-language
+front-end (NL → q*) is a separate layer, not yet built.
+
 ## Engineering principles
 
 1. Every module is an independently deployable service. A monorepo is not a monolith.

@@ -46,6 +46,17 @@ services:
     ports:
       - "6379:6379"
 
+  api:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.api
+    ports:
+      - "8000:8000"
+    # The default world is in-memory (zero-config). Wire real backends via env when ready.
+    depends_on:
+      - postgres
+      - neo4j
+
 volumes:
   pgdata:
   neo4jdata:

@@ -23,6 +23,7 @@ jobs:
           pip install -e "services/causal[dev,neo4j]"
           pip install -e "services/knowledge[dev]"
           pip install -e "services/compiler[dev]"
+          pip install -e "services/api[dev]"
       - name: Lint (ruff)
         run: ruff check libs services
       - name: Type check (mypy --strict)
@@ -37,6 +38,7 @@ jobs:
           services/causal/loka_causal
           services/knowledge/loka_knowledge
           services/compiler/loka_compiler
+          services/api/loka_api
           examples/end_to_end_demo.py
       - name: Test
         run: pytest libs services -v
