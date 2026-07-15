@@ -4,12 +4,26 @@
 version: v0.1
 
 entities:
-  - {type: Instrument}
-  - {type: Bond, subtype_of: Instrument}
-  - {type: SovereignBond, subtype_of: Bond}
+  - type: Instrument
+    properties:
+      - {name: id, type: string, required: true}
+      - {name: notional, type: double}
+  - type: Bond
+    subtype_of: Instrument
+    properties:
+      - {name: coupon, type: double}
+      - {name: maturity, type: date}
+  - type: SovereignBond
+    subtype_of: Bond
+    properties:
+      - {name: issuer_country, type: string, required: true}
   - {type: PolicyLever}
   - {type: Regulator}
-  - {type: CentralBank, subtype_of: Regulator}
+  - type: CentralBank
+    subtype_of: Regulator
+    properties:
+      - {name: policy_rate, type: double}
+      - {name: last_updated, type: timestamp}
 
 verbs:
   - {name: REGULATE, class: institutional}

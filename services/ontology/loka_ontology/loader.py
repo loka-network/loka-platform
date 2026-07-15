@@ -12,8 +12,10 @@ from typing import Any
 import yaml
 
 from .model import (
+    BaseType,
     EntityType,
     Ontology,
+    Property,
     Relation,
     TypingConstraint,
     Verb,
@@ -47,7 +49,11 @@ def _parse(raw: dict[str, Any]) -> Ontology:
     entities: dict[str, EntityType] = {}
     for item in raw.get("entities", []) or []:
         name = item["type"]
-        entities[name] = EntityType(name=name, subtype_of=item.get("subtype_of"))
+        entities[name] = EntityType(
+            name=name,
+            subtype_of=item.get("subtype_of"),
+            properties=_parse_properties(name, item.get("properties", []) or []),
+        )
 
     verbs: dict[str, Verb] = {}
     for item in raw.get("verbs", []) or []:
@@ -86,6 +92,31 @@ def _parse(raw: dict[str, Any]) -> Ontology:
     )
     _validate_references(onto)
     return onto
+
+
+def _parse_properties(entity: str, items: list[dict[str, Any]]) -> tuple[Property, ...]:
+    props: list[Property] = []
+    seen: set[str] = set()
+    for p in items:
+        pname = p["name"]
+        if pname in seen:
+            raise OntologyLoadError(f"entity {entity} has duplicate property {pname}")
+        seen.add(pname)
+        try:
+            base_type = BaseType(p["type"])
+        except ValueError as exc:
+            raise OntologyLoadError(
+                f"entity {entity} property {pname} has invalid type: {p.get('type')}"
+            ) from exc
+        props.append(
+            Property(
+                name=pname,
+                base_type=base_type,
+                required=bool(p.get("required", False)),
+                description=p.get("description"),
+            )
+        )
+    return tuple(props)
 
 
 def _validate_references(onto: Ontology) -> None:

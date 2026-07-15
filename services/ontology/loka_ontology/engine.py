@@ -10,9 +10,11 @@ implemented with Soufflé/Datalog later.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import date, datetime
 
-from .model import Ontology, Relation, VerbClass
+from .model import BaseType, Ontology, Property, Relation, VerbClass
 
 
 @dataclass(frozen=True)
@@ -74,6 +76,51 @@ class OntologyEngine:
             for other in self._onto.entities
             if other != name and name in self.supertypes(other)
         ]
+
+    # ---- property queries (⪯-inherited) + value validation ----
+
+    def properties_of(self, entity_type: str) -> dict[str, Property]:
+        """Effective properties: own + inherited along ⪯; a subtype overrides its supertype."""
+        if entity_type not in self._onto.entities:
+            return {}
+        result: dict[str, Property] = {}
+        # general → specific, so a subtype's redeclaration overrides the inherited one
+        chain = [*reversed(self.supertypes(entity_type)), entity_type]
+        for t in chain:
+            for prop in self._onto.entities[t].properties:
+                result[prop.name] = prop
+        return result
+
+    def property_of(self, entity_type: str, name: str) -> Property | None:
+        return self.properties_of(entity_type).get(name)
+
+    def validate_values(
+        self,
+        entity_type: str,
+        values: Mapping[str, object],
+        *,
+        allow_unknown: bool = True,
+    ) -> tuple[str, ...]:
+        """Check ``values`` against an entity type's (inherited) properties.
+
+        Returns typed-violation messages; an empty tuple means valid.
+        """
+        if entity_type not in self._onto.entities:
+            return (f"unknown entity type: {entity_type}",)
+        props = self.properties_of(entity_type)
+        errors: list[str] = []
+        for name, prop in props.items():
+            if name not in values:
+                if prop.required:
+                    errors.append(f"missing required property: {name}")
+                continue
+            value = values[name]
+            if not _matches_base_type(value, prop.base_type):
+                got = type(value).__name__
+                errors.append(f"property {name} expects {prop.base_type.value}, got {got}")
+        if not allow_unknown:
+            errors.extend(f"unknown property: {name}" for name in values if name not in props)
+        return tuple(errors)
 
     # ---- verb queries ----
 
@@ -137,3 +184,24 @@ class OntologyEngine:
                 f"got agent={agent_type}, target={target_type}"
             ),
         )
+
+
+def _matches_base_type(value: object, base_type: BaseType) -> bool:
+    """Whether a Python value conforms to a property's base type.
+
+    ``bool`` is excluded from the numeric types (it is a subclass of ``int`` in Python), and a
+    plain ``date`` is distinguished from a ``datetime`` (which is a subclass of ``date``).
+    """
+    if base_type is BaseType.STRING:
+        return isinstance(value, str)
+    if base_type is BaseType.BOOLEAN:
+        return isinstance(value, bool)
+    if base_type is BaseType.INTEGER:
+        return isinstance(value, int) and not isinstance(value, bool)
+    if base_type is BaseType.DOUBLE:
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+    if base_type is BaseType.TIMESTAMP:
+        return isinstance(value, datetime)
+    if base_type is BaseType.DATE:
+        return isinstance(value, date) and not isinstance(value, datetime)
+    return False

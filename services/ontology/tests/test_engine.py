@@ -102,6 +102,61 @@ def test_binding_unknown_verb(engine: OntologyEngine) -> None:
     assert res.reason is not None and "undefined verb" in res.reason
 
 
+# ---- typed properties (⪯-inherited) + value validation ----
+
+def test_properties_are_inherited(engine: OntologyEngine) -> None:
+    props = engine.properties_of("SovereignBond")
+    # own (issuer_country) + Bond (coupon, maturity) + Instrument (id, notional)
+    assert set(props) == {"id", "notional", "coupon", "maturity", "issuer_country"}
+
+
+def test_property_of(engine: OntologyEngine) -> None:
+    from loka_ontology import BaseType
+
+    p = engine.property_of("CentralBank", "policy_rate")
+    assert p is not None and p.base_type == BaseType.DOUBLE
+    assert engine.property_of("CentralBank", "nope") is None
+
+
+def test_validate_values_ok(engine: OntologyEngine) -> None:
+    from datetime import date
+
+    values = {"id": "US10Y", "notional": 1000.0, "coupon": 2.5, "maturity": date(2030, 1, 1),
+              "issuer_country": "US"}
+    assert engine.validate_values("SovereignBond", values) == ()
+
+
+def test_validate_missing_required(engine: OntologyEngine) -> None:
+    # id (from Instrument) and issuer_country (own) are required
+    errors = engine.validate_values("SovereignBond", {"notional": 1.0})
+    assert any("id" in e for e in errors)
+    assert any("issuer_country" in e for e in errors)
+
+
+def test_validate_wrong_type(engine: OntologyEngine) -> None:
+    errors = engine.validate_values("Instrument", {"id": "X", "notional": "not-a-number"})
+    assert any("notional" in e and "double" in e for e in errors)
+
+
+def test_validate_bool_is_not_integer_or_double(engine: OntologyEngine) -> None:
+    # bool must not satisfy double (it is an int subclass in Python)
+    errors = engine.validate_values("Instrument", {"id": "X", "notional": True})
+    assert any("notional" in e for e in errors)
+
+
+def test_validate_unknown_property_optional(engine: OntologyEngine) -> None:
+    values = {"id": "X", "extra": 1}
+    assert engine.validate_values("Instrument", values) == ()  # allowed by default
+    errors = engine.validate_values("Instrument", values, allow_unknown=False)
+    assert any("unknown property: extra" in e for e in errors)
+
+
+def test_loader_rejects_bad_property_type() -> None:
+    bad = "version: v0\nentities:\n  - {type: X, properties: [{name: a, type: nope}]}\n"
+    with pytest.raises(OntologyLoadError):
+        load_ontology_str(bad)
+
+
 # ---- loader structural checks ----
 
 def test_loader_rejects_dangling_subtype() -> None:

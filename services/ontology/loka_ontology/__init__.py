@@ -7,8 +7,10 @@ Downstream services (grounding, compiler) access the ontology only through this 
 from .engine import BindingCheck, OntologyEngine
 from .loader import OntologyLoadError, load_ontology, load_ontology_str
 from .model import (
+    BaseType,
     EntityType,
     Ontology,
+    Property,
     Relation,
     TypingConstraint,
     Verb,
@@ -27,6 +29,8 @@ __all__ = [
     "OntologyLoadError",
     "Ontology",
     "EntityType",
+    "Property",
+    "BaseType",
     "Verb",
     "VerbClass",
     "Relation",

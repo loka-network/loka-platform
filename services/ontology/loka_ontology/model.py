@@ -19,16 +19,41 @@ class VerbClass(StrEnum):
     INSTITUTIONAL = "institutional"  # Vinst: change norms/permissions (REGULATE, VOTE...)
 
 
+class BaseType(StrEnum):
+    """Property value types (a small, portable subset of the Palantir base-type set)."""
+
+    STRING = "string"
+    INTEGER = "integer"
+    DOUBLE = "double"
+    BOOLEAN = "boolean"
+    TIMESTAMP = "timestamp"
+    DATE = "date"
+
+
+@dataclass(frozen=True)
+class Property:
+    """An attribute of an entity type, with a value type. Properties are inherited via ⪯."""
+
+    name: str
+    base_type: BaseType
+    required: bool = False
+    description: str | None = None
+
+
 @dataclass(frozen=True)
 class EntityType:
     """E: one entity type; ``subtype_of`` encodes the subtype order ⪯.
 
     e.g. SovereignBond.subtype_of = "Bond", Bond.subtype_of = "Instrument"
     → SovereignBond ⪯ Bond ⪯ Instrument.
+
+    Properties declared here are inherited by subtypes; a subtype may override a property by
+    redeclaring it under the same name.
     """
 
     name: str
     subtype_of: str | None = None
+    properties: tuple[Property, ...] = ()
 
 
 @dataclass(frozen=True)
