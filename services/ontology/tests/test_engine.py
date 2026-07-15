@@ -157,6 +157,66 @@ def test_loader_rejects_bad_property_type() -> None:
         load_ontology_str(bad)
 
 
+# ---- link cardinality ----
+
+def _rel_engine(card: str) -> OntologyEngine:
+    y = (
+        "version: v0\nentities:\n  - {type: A}\n  - {type: B}\n"
+        f"relations:\n  - {{name: r, from: A, to: B, cardinality: {card}}}\n"
+    )
+    return OntologyEngine(load_ontology_str(y))
+
+
+def test_relation_lookup(engine: OntologyEngine) -> None:
+    from loka_ontology import Cardinality
+
+    rel = engine.relation("regulator-of")
+    assert rel is not None and rel.cardinality == Cardinality.ONE_TO_MANY
+    assert engine.relation("nope") is None
+
+
+def test_one_to_many_ok_and_violation(engine: OntologyEngine) -> None:
+    # regulator-of is one_to_many: one Regulator → many Instruments; each Instrument ≤ 1 Regulator
+    assert engine.validate_links("regulator-of", [("Fed", "US10Y"), ("Fed", "AAPL")]) == ()
+    errors = engine.validate_links("regulator-of", [("Fed", "US10Y"), ("ECB", "US10Y")])
+    assert any("US10Y" in e and "sources" in e for e in errors)
+
+
+def test_cardinality_dedupes_identical_links(engine: OntologyEngine) -> None:
+    assert engine.validate_links("regulator-of", [("Fed", "US10Y"), ("Fed", "US10Y")]) == ()
+
+
+def test_many_to_many_unconstrained() -> None:
+    e = _rel_engine("many_to_many")
+    assert e.validate_links("r", [("a1", "b1"), ("a1", "b2"), ("a2", "b1")]) == ()
+
+
+def test_one_to_one() -> None:
+    e = _rel_engine("one_to_one")
+    assert e.validate_links("r", [("a1", "b1"), ("a2", "b2")]) == ()
+    assert e.validate_links("r", [("a1", "b1"), ("a1", "b2")])  # a1 → 2 targets
+    assert e.validate_links("r", [("a1", "b1"), ("a2", "b1")])  # b1 ← 2 sources
+
+
+def test_many_to_one() -> None:
+    e = _rel_engine("many_to_one")
+    assert e.validate_links("r", [("a1", "b1"), ("a2", "b1")]) == ()  # many A → one B ok
+    assert e.validate_links("r", [("a1", "b1"), ("a1", "b2")])  # a1 → 2 targets: violation
+
+
+def test_validate_links_unknown_relation(engine: OntologyEngine) -> None:
+    assert engine.validate_links("nope", [("a", "b")]) == ("unknown relation: nope",)
+
+
+def test_loader_rejects_bad_cardinality() -> None:
+    bad = (
+        "version: v0\nentities:\n  - {type: A}\n  - {type: B}\n"
+        "relations:\n  - {name: r, from: A, to: B, cardinality: nope}\n"
+    )
+    with pytest.raises(OntologyLoadError):
+        load_ontology_str(bad)
+
+
 # ---- loader structural checks ----
 
 def test_loader_rejects_dangling_subtype() -> None:

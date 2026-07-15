@@ -13,6 +13,7 @@ import yaml
 
 from .model import (
     BaseType,
+    Cardinality,
     EntityType,
     Ontology,
     Property,
@@ -66,10 +67,25 @@ def _parse(raw: dict[str, Any]) -> Ontology:
             ) from exc
         verbs[name] = Verb(name=name, verb_class=vclass)
 
-    relations: list[Relation] = [
-        Relation(name=item["name"], from_type=item["from"], to_type=item["to"])
-        for item in raw.get("relations", []) or []
-    ]
+    relations: list[Relation] = []
+    for item in raw.get("relations", []) or []:
+        raw_card = item.get("cardinality")
+        try:
+            cardinality = (
+                Cardinality(raw_card) if raw_card is not None else Cardinality.MANY_TO_MANY
+            )
+        except ValueError as exc:
+            raise OntologyLoadError(
+                f"relation {item['name']} has invalid cardinality: {raw_card}"
+            ) from exc
+        relations.append(
+            Relation(
+                name=item["name"],
+                from_type=item["from"],
+                to_type=item["to"],
+                cardinality=cardinality,
+            )
+        )
 
     constraints: list[TypingConstraint] = []
     for item in raw.get("constraints", []) or []:

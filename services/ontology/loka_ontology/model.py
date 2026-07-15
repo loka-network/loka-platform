@@ -64,6 +64,15 @@ class Verb:
     verb_class: VerbClass
 
 
+class Cardinality(StrEnum):
+    """Link-type cardinality (from → to)."""
+
+    ONE_TO_ONE = "one_to_one"  # each from ≤ 1 to, each to ≤ 1 from
+    ONE_TO_MANY = "one_to_many"  # from is the "one" side: each to ≤ 1 from
+    MANY_TO_ONE = "many_to_one"  # to is the "one" side: each from ≤ 1 to
+    MANY_TO_MANY = "many_to_many"  # unconstrained
+
+
 @dataclass(frozen=True)
 class Relation:
     """R: a directed relation between entity types, e.g. regulator-of(Regulator → Instrument)."""
@@ -71,6 +80,7 @@ class Relation:
     name: str
     from_type: str
     to_type: str
+    cardinality: Cardinality = Cardinality.MANY_TO_MANY
 
 
 @dataclass(frozen=True)

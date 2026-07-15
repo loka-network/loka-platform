@@ -10,11 +10,12 @@ implemented with Soufflé/Datalog later.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections import Counter
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
 
-from .model import BaseType, Ontology, Property, Relation, VerbClass
+from .model import BaseType, Cardinality, Ontology, Property, Relation, VerbClass
 
 
 @dataclass(frozen=True)
@@ -141,6 +142,39 @@ class OntologyEngine:
     def relations_to(self, type_name: str) -> list[Relation]:
         """Relations whose target type is ⪯-compatible with ``type_name``."""
         return [r for r in self._onto.relations if self.is_subtype(type_name, r.to_type)]
+
+    def relation(self, name: str) -> Relation | None:
+        return next((r for r in self._onto.relations if r.name == name), None)
+
+    def validate_links(
+        self, relation_name: str, links: Iterable[tuple[str, str]]
+    ) -> tuple[str, ...]:
+        """Check a set of (from_id, to_id) links against the relation's cardinality.
+
+        Returns cardinality-violation messages; an empty tuple means valid. Identical duplicate
+        links are treated as one relationship.
+        """
+        rel = self.relation(relation_name)
+        if rel is None:
+            return (f"unknown relation: {relation_name}",)
+        pairs = set(links)  # dedupe: a repeated identical link is the same relationship
+        errors: list[str] = []
+        card = rel.cardinality
+        if card in (Cardinality.ONE_TO_ONE, Cardinality.MANY_TO_ONE):
+            # each source may point to at most one target
+            for src, n in Counter(f for f, _ in pairs).items():
+                if n > 1:
+                    errors.append(
+                        f"{relation_name}: source '{src}' has {n} targets ({card.value})"
+                    )
+        if card in (Cardinality.ONE_TO_ONE, Cardinality.ONE_TO_MANY):
+            # each target may be pointed to by at most one source
+            for tgt, n in Counter(t for _, t in pairs).items():
+                if n > 1:
+                    errors.append(
+                        f"{relation_name}: target '{tgt}' has {n} sources ({card.value})"
+                    )
+        return tuple(errors)
 
     # ---- typing-constraint checks (simplified CΩ) ----
 

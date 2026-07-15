@@ -31,7 +31,8 @@ verbs:
   - {name: ANNOUNCE, class: communicative}
 
 relations:
-  - {name: regulator-of, from: Regulator, to: Instrument}
+  # each Instrument has at most one Regulator; a Regulator regulates many Instruments
+  - {name: regulator-of, from: Regulator, to: Instrument, cardinality: one_to_many}
 
 constraints:
   # Only a Regulator may REGULATE, and the target must be an Instrument or a PolicyLever.

@@ -8,6 +8,7 @@ from .engine import BindingCheck, OntologyEngine
 from .loader import OntologyLoadError, load_ontology, load_ontology_str
 from .model import (
     BaseType,
+    Cardinality,
     EntityType,
     Ontology,
     Property,
@@ -34,5 +35,6 @@ __all__ = [
     "Verb",
     "VerbClass",
     "Relation",
+    "Cardinality",
     "TypingConstraint",
 ]
