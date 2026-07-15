@@ -37,5 +37,6 @@ jobs:
           services/causal/loka_causal
           services/knowledge/loka_knowledge
           services/compiler/loka_compiler
+          examples/end_to_end_demo.py
       - name: Test
         run: pytest libs services -v
