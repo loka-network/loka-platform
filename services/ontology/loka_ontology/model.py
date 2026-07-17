@@ -54,6 +54,8 @@ class EntityType:
     name: str
     subtype_of: str | None = None
     properties: tuple[Property, ...] = ()
+    # the adapter/table this object type is derived from (Palantir-style)
+    backing: str | None = None
 
 
 @dataclass(frozen=True)

@@ -54,6 +54,7 @@ def _parse(raw: dict[str, Any]) -> Ontology:
             name=name,
             subtype_of=item.get("subtype_of"),
             properties=_parse_properties(name, item.get("properties", []) or []),
+            backing=item.get("backing"),
         )
 
     verbs: dict[str, Verb] = {}

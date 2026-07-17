@@ -5,6 +5,13 @@ Downstream services (grounding, compiler) access the ontology only through this 
 """
 
 from .engine import BindingCheck, OntologyEngine
+from .infer import (
+    guess_primary_key,
+    infer_base_type,
+    infer_entity_type,
+    infer_ontology_from_rows,
+    to_yaml,
+)
 from .loader import OntologyLoadError, load_ontology, load_ontology_str
 from .model import (
     BaseType,
@@ -28,6 +35,11 @@ __all__ = [
     "load_ontology",
     "load_ontology_str",
     "OntologyLoadError",
+    "infer_ontology_from_rows",
+    "infer_entity_type",
+    "infer_base_type",
+    "guess_primary_key",
+    "to_yaml",
     "Ontology",
     "EntityType",
     "Property",
