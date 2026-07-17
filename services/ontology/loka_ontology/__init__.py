@@ -9,6 +9,7 @@ from .infer import (
     guess_primary_key,
     infer_base_type,
     infer_entity_type,
+    infer_from_adapter,
     infer_ontology_from_rows,
     to_yaml,
 )
@@ -36,6 +37,7 @@ __all__ = [
     "load_ontology_str",
     "OntologyLoadError",
     "infer_ontology_from_rows",
+    "infer_from_adapter",
     "infer_entity_type",
     "infer_base_type",
     "guess_primary_key",

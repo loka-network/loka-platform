@@ -2,15 +2,25 @@
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import AsyncIterator
 from datetime import UTC, date, datetime
 
 from loka_ontology import (
     BaseType,
     guess_primary_key,
     infer_base_type,
+    infer_from_adapter,
     infer_ontology_from_rows,
     load_ontology_str,
     to_yaml,
+)
+from loka_schemas import (
+    Certificate,
+    Lineage,
+    Session,
+    TypedPredicate,
+    TypedRow,
 )
 
 ROWS = [
@@ -66,3 +76,70 @@ def test_yaml_draft_round_trips_through_loader() -> None:
     assert et.backing == "warehouse.instruments"
     assert {p.name for p in et.properties} == {"id", "notional", "count", "active", "asof"}
     assert next(p for p in et.properties if p.name == "notional").base_type == BaseType.DOUBLE
+
+
+class _FakeAdapter:
+    """Minimal read-only adapter that replays fixed rows — enough to exercise the contract."""
+
+    def __init__(self, rows: list[dict[str, object]]) -> None:
+        self._rows = rows
+
+    async def authenticate(self, cert: Certificate) -> Session:
+        return Session(
+            subject=cert.subject,
+            scopes=cert.scopes,
+            established_at=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+
+    async def query(
+        self, predicate: TypedPredicate, session: Session
+    ) -> AsyncIterator[TypedRow]:
+        lineage = Lineage(
+            source="warehouse",
+            adapter_id="fake",
+            retrieved_at=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+        for r in self._rows:
+            yield TypedRow(entity_type=predicate.entity_type, values=r, lineage=lineage)
+
+
+def test_infer_from_adapter() -> None:
+    adapter = _FakeAdapter([dict(r) for r in ROWS])
+
+    async def _run() -> object:
+        session = await adapter.authenticate(
+            Certificate(subject="tester", scopes=frozenset({"Instrument"}))
+        )
+        return await infer_from_adapter(
+            "Instrument",
+            adapter,
+            TypedPredicate(entity_type="Instrument"),
+            session,
+        )
+
+    onto = asyncio.run(_run())
+    et = onto.entities["Instrument"]  # type: ignore[attr-defined]
+    assert et.backing == "Instrument"  # defaults to the queried entity type
+    types = {p.name: p.base_type for p in et.properties}
+    assert types["notional"] == BaseType.DOUBLE
+    assert types["active"] == BaseType.BOOLEAN
+
+
+def test_infer_from_adapter_respects_limit() -> None:
+    many = [{"id": f"x{i}", "v": i} for i in range(100)]
+    adapter = _FakeAdapter(many)
+
+    async def _run() -> object:
+        session = await adapter.authenticate(Certificate(subject="t"))
+        return await infer_from_adapter(
+            "Thing",
+            adapter,
+            TypedPredicate(entity_type="Thing"),
+            session,
+            limit=5,
+        )
+
+    onto = asyncio.run(_run())
+    et = onto.entities["Thing"]  # type: ignore[attr-defined]
+    # only 5 rows sampled → id still unique across them, so it's a valid PK guess
+    assert {p.name for p in et.properties} == {"id", "v"}

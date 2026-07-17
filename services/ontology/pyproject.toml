@@ -13,6 +13,9 @@ dev = [
     "mypy>=1.10",
     "types-pyyaml>=6.0",
     "ruff>=0.5",
+    # type-only + test-only: infer_from_adapter checks against the adapter contract;
+    # the ontology package keeps no loka-schemas dependency at runtime.
+    "loka-schemas",
 ]
 
 [build-system]

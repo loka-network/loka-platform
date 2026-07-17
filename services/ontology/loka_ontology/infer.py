@@ -10,10 +10,16 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from datetime import date, datetime
+from typing import TYPE_CHECKING
 
 import yaml
 
 from .model import BaseType, EntityType, Ontology, Property
+
+if TYPE_CHECKING:
+    # Type-only: the pure ontology package keeps no runtime dependency on loka_schemas.
+    # infer_from_adapter still type-checks against the real adapter contract.
+    from loka_schemas import MemoryAdapter, Session, TypedPredicate
 
 Row = Mapping[str, object]
 
@@ -105,6 +111,37 @@ def infer_ontology_from_rows(
     """Build a one-entity draft ontology from sample rows."""
     et = infer_entity_type(entity_type, rows, subtype_of=subtype_of, backing=backing)
     return Ontology(version=version, entities={et.name: et})
+
+
+async def infer_from_adapter(
+    entity_type: str,
+    adapter: MemoryAdapter,
+    predicate: TypedPredicate,
+    session: Session,
+    *,
+    limit: int = 1000,
+    subtype_of: str | None = None,
+    backing: str | None = None,
+    version: str = "draft-v1",
+) -> Ontology:
+    """Pull a sample of rows from a live adapter and derive a draft ontology from them.
+
+    Streams up to ``limit`` rows via the read-only adapter contract, then hands them to
+    :func:`infer_ontology_from_rows`. ``backing`` defaults to the queried entity type so the
+    draft records where it came from. The bigger the sample, the better the type/PK guesses.
+    """
+    rows: list[Row] = []
+    async for row in adapter.query(predicate, session):
+        rows.append(row.values)
+        if len(rows) >= limit:
+            break
+    return infer_ontology_from_rows(
+        entity_type,
+        rows,
+        subtype_of=subtype_of,
+        backing=backing or predicate.entity_type,
+        version=version,
+    )
 
 
 def to_yaml(ontology: Ontology) -> str:
