@@ -17,7 +17,7 @@ from loka_compiler import CompileError, compile_wqt
 from loka_schemas import TypedQuery
 from pydantic import BaseModel
 
-from .world import World, build_default_world
+from .world import World, build_world_from_env
 
 
 class CompileRequest(BaseModel):
@@ -31,12 +31,16 @@ class CompileRequest(BaseModel):
 
 def create_app(world: World | None = None) -> FastAPI:
     app = FastAPI(title="Loka Platform API", version="0.0.1")
-    app.state.world = world or build_default_world()
+    app.state.world = world or build_world_from_env()
 
     @app.get("/health")
     def health() -> dict[str, str]:
         w: World = app.state.world
-        return {"status": "ok", "ontology_version": w.engine.version}
+        return {
+            "status": "ok",
+            "ontology_version": w.engine.version,
+            "backend": w.backend,
+        }
 
     @app.post("/compile")
     def compile_endpoint(req: CompileRequest) -> dict[str, object]:
