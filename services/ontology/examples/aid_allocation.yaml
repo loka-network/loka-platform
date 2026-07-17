@@ -1,0 +1,78 @@
+# Aid / grant-allocation ontology — first real domain content for the engine.
+# Maps the plan's §3.1 three tables (entities / attributes / relations) into a
+# form the ontology engine can load and validate. Every property records its
+# provenance in `description`: real = from a real dataset, inferred = model output,
+# exogenous = externally given (not moved by the system).
+version: aid-v0.1
+
+entities:
+  # ---- 基金会 Foundation ----
+  - type: Foundation
+    properties:
+      - {name: id,   type: string, required: true, description: "real — funder id (IATI/990)"}
+      - {name: name, type: string, required: true, description: "real — funder name"}
+
+  # ---- 资助 Grant ----
+  - type: Grant
+    backing: iati_grants
+    properties:
+      - {name: id,            type: string,  required: true, description: "real — grant id"}
+      - {name: amount_usd,    type: double,  required: true, description: "real — grant amount, USD"}
+      - {name: approved_date, type: date,    required: true, description: "real — approval date"}
+      - {name: status,        type: string,  required: true, description: "real — active/closed"}
+
+  # ---- 项目 Program ----
+  - type: Program
+    properties:
+      - {name: id,          type: string, required: true, description: "real — program id"}
+      - {name: name,        type: string, required: true, description: "real — program name"}
+      - {name: budget_usd,  type: double, required: true, description: "real — program budget, USD (internal/endogenous)"}
+      - {name: sector,      type: string, description: "real — e.g. health/water/education"}
+
+  # ---- 地区 Region ----
+  - type: Region
+    properties:
+      - {name: id,             type: string, required: true, description: "real — ISO country/region code"}
+      - {name: name,           type: string, required: true, description: "real — region name"}
+      - {name: economic_index, type: double, description: "exogenous — local economy (WDI/IMF, externally given)"}
+
+  # ---- 受助群体 BeneficiaryGroup ----
+  - type: BeneficiaryGroup
+    properties:
+      - {name: id,         type: string,  required: true, description: "real — group id"}
+      - {name: name,       type: string,  required: true, description: "real — group name"}
+      - {name: population, type: integer, description: "real — group size"}
+
+  # ---- 结果指标 Outcome ----
+  - type: Outcome
+    properties:
+      - {name: id,              type: string,  required: true, description: "real — outcome id"}
+      - {name: beneficiaries,   type: integer, description: "real — people reached (from result data)"}
+      - {name: cost_efficiency, type: double,  description: "inferred — cost per beneficiary (model output)"}
+
+  # ---- 外部因素 ExternalFactor ----
+  - type: ExternalFactor
+    properties:
+      - {name: id,    type: string, required: true, description: "real — factor id"}
+      - {name: name,  type: string, required: true, description: "real — e.g. drought, policy change"}
+      - {name: value, type: double, description: "exogenous — externally given"}
+
+# Verbs: who may do what kind of act (V = factual ⊔ communicative ⊔ institutional)
+verbs:
+  - {name: APPROVE,  class: institutional}   # 批准一笔资助 (a permission/norm act)
+  - {name: ALLOCATE, class: factual}         # 把钱投向项目 (acts on the world)
+
+# Relations (§3.1 third table): typed links with cardinality.
+# NOTE: these are typed *links*, not causal claims. Causal edges (grant -> outcome
+# and their identification strength) live in the separate causal layer Γ, not here.
+relations:
+  - {name: grants,     from: Foundation,     to: Grant,   cardinality: one_to_many}   # 基金会—拨款→资助
+  - {name: funds,      from: Grant,          to: Program, cardinality: many_to_one}   # 资助—投向→项目
+  - {name: targets,    from: Program,        to: Region,  cardinality: many_to_many}  # 项目—作用于→地区
+  - {name: serves,     from: Program,        to: BeneficiaryGroup, cardinality: many_to_many} # 项目—作用于→群体
+  - {name: produces,   from: Program,        to: Outcome, cardinality: one_to_many}   # 项目—产生→结果
+  - {name: influences, from: ExternalFactor, to: Outcome, cardinality: many_to_many}  # 外部因素—影响→结果
+
+# Constraints: only a Foundation may APPROVE a Grant.
+constraints:
+  - {verb: APPROVE, agent_must_be: Foundation, target_must_be: [Grant]}
