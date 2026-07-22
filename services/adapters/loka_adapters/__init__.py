@@ -4,5 +4,7 @@ The contract itself lives in loka_schemas.adapter; this package provides impleme
 """
 
 from .memory import InMemoryAdapter
+from .sql_planner import SqlPlanError, plan_select
+from .worldbank import WorldBankAdapter
 
-__all__ = ["InMemoryAdapter"]
+__all__ = ["InMemoryAdapter", "WorldBankAdapter", "plan_select", "SqlPlanError"]
