@@ -7,6 +7,12 @@ strict = true
 python_version = "3.11"
 exclude = ['\.venv', 'build']
 
+# anthropic is an optional extra (grounding[llm]); don't fail the strict typecheck when
+# it isn't installed in the dev environment.
+[[tool.mypy.overrides]]
+module = "anthropic.*"
+ignore_missing_imports = true
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"
