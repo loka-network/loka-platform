@@ -29,6 +29,15 @@ class CompileRequest(BaseModel):
     signature: str | None = None
 
 
+class OntologyCompileRequest(BaseModel):
+    """An externally-built ontology posted to /compile-ontology (S1 + S2 → W(q,t))."""
+
+    ontology_id: str
+    ontology_name: str = "ontology"
+    entities: list[dict[str, Any]]
+    relations: list[dict[str, Any]]
+
+
 def create_app(world: World | None = None) -> FastAPI:
     app = FastAPI(title="Loka Platform API", version="0.0.1")
     app.state.world = world or build_world_from_env()
@@ -59,6 +68,23 @@ def create_app(world: World | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         encoded: dict[str, Any] = jsonable_encoder(wqt)
         return encoded
+
+    @app.post("/compile-ontology")
+    def compile_ontology_endpoint(req: OntologyCompileRequest) -> dict[str, Any]:
+        """Compile an externally-authored ontology into W(q,t) — used by Loka-OntoPrompt."""
+        from .ontology_compile import compile_wqt_from_ontology
+
+        if not req.entities:
+            raise HTTPException(status_code=400, detail="ontology has no entities")
+        try:
+            return compile_wqt_from_ontology(
+                req.entities,
+                req.relations,
+                ontology_id=req.ontology_id,
+                ontology_name=req.ontology_name,
+            )
+        except CompileError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return app
 
