@@ -1,0 +1,87 @@
+{
+  "fetched_from": {
+    "projects": "https://search.worldbank.org/api/v2/projects?format=json&countrycode=ZM&sector=Health&rows=10",
+    "outcomes": "https://api.worldbank.org/v2/country/ZMB/indicator/SH.STA.MALR?format=json&date=2012:2020"
+  },
+  "inputs": [
+    {
+      "grant_id": "P176400",
+      "program": "Additional Financing for the Zambia COVID-19 Emergency Respo",
+      "amount_usd": 14000000.0,
+      "status": "Active",
+      "country": "Republic of Zambia"
+    },
+    {
+      "grant_id": "P174185",
+      "program": "Zambia COVID-19 Emergency Response and Health Systems Prepar",
+      "amount_usd": 20000000.0,
+      "status": "Active",
+      "country": "Republic of Zambia"
+    },
+    {
+      "grant_id": "P149091",
+      "program": "Lusaka Sanitation Project",
+      "amount_usd": 65000000.0,
+      "status": "Closed",
+      "country": "Republic of Zambia"
+    },
+    {
+      "grant_id": "P145335",
+      "program": "Health Services Improvement Project",
+      "amount_usd": 52000000.0,
+      "status": "Closed",
+      "country": "Republic of Zambia"
+    },
+    {
+      "grant_id": "P120872",
+      "program": "Malaria Booster Project Additional financing",
+      "amount_usd": 30000000.0,
+      "status": "Closed",
+      "country": "Republic of Zambia"
+    },
+    {
+      "grant_id": "P145764",
+      "program": "Zambia:-Health Results Based Financing Project",
+      "amount_usd": 0.0,
+      "status": "Closed",
+      "country": "Republic of Zambia"
+    },
+    {
+      "grant_id": "P103625",
+      "program": "Avian Influenza Prevention and Control",
+      "amount_usd": 0.0,
+      "status": "Closed",
+      "country": "Republic of Zambia"
+    },
+    {
+      "grant_id": "P096131",
+      "program": "Zambia Malaria Booster Project",
+      "amount_usd": 20000000.0,
+      "status": "Closed",
+      "country": "Republic of Zambia"
+    },
+    {
+      "grant_id": "P003248",
+      "program": "Zambia National Response to HIV/AIDS (ZANARA)",
+      "amount_usd": 42000000.0,
+      "status": "Closed",
+      "country": "Republic of Zambia"
+    },
+    {
+      "grant_id": "P080612",
+      "program": "Emergency Drought Recovery Project",
+      "amount_usd": 50000000.0,
+      "status": "Closed",
+      "country": "Republic of Zambia"
+    }
+  ],
+  "outcomes": {
+    "2020": 8121215.0,
+    "2019": 5147350.0,
+    "2018": 5039679.0,
+    "2017": 5505639.0,
+    "2016": 4851319.0,
+    "2015": 4184661.0,
+    "2014": 4077547.0
+  }
+}
