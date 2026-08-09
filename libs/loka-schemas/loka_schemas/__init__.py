@@ -3,6 +3,7 @@
 Every service depends on these types; services never import each other's internals.
 """
 
+from .action import ActionProposal
 from .adapter import (
     AdapterError,
     AuthenticationError,
@@ -87,6 +88,8 @@ __all__ = [
     "DecisionMemo",
     # KB.METHODS
     "Method",
+    # Action layer
+    "ActionProposal",
     # Workflow A output
     "KBSpec",
 ]

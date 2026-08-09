@@ -61,6 +61,12 @@ verbs:
   - {name: RATE_CHANGE, class: institutional}
 relations:
   - {name: sets, from: CentralBank, to: PolicyLever, cardinality: one_to_many}
+actions:
+  - name: CutPolicyLever
+    verb: RATE_CHANGE
+    target: PolicyLever
+    guard: "policy_rate > 0"
+    effect: "policy_rate decreases by 25bp"
 """
 
 
