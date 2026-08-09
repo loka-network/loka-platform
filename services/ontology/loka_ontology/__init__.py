@@ -4,6 +4,13 @@ Public API: load an ontology definition, query subtypes, check type bindings.
 Downstream services (grounding, compiler) access the ontology only through this API.
 """
 
+from .builder import (
+    KeywordBuilder,
+    LLMBuilder,
+    OntologyBuilder,
+    OntologyDraft,
+    build,
+)
 from .engine import BindingCheck, OntologyEngine
 from .infer import (
     guess_primary_key,
@@ -30,6 +37,11 @@ from .souffle_checker import SouffleTypeChecker, SouffleUnavailable, souffle_ava
 __all__ = [
     "OntologyEngine",
     "BindingCheck",
+    "build",
+    "KeywordBuilder",
+    "LLMBuilder",
+    "OntologyBuilder",
+    "OntologyDraft",
     "SouffleTypeChecker",
     "SouffleUnavailable",
     "souffle_available",

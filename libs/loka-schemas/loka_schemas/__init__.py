@@ -27,6 +27,7 @@ from .evidence import (
     EvidenceRecord,
     StudyDesign,
 )
+from .kb_spec import KBSpec
 from .method import Method
 from .mission import (
     AuthorityRule,
@@ -86,4 +87,6 @@ __all__ = [
     "DecisionMemo",
     # KB.METHODS
     "Method",
+    # Workflow A output
+    "KBSpec",
 ]
