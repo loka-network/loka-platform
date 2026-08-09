@@ -33,6 +33,39 @@ def test_answer_walks_end_to_end() -> None:
     assert body["stages"]["policy"] == "stub"
 
 
+def test_orders_query_applies_causal_method() -> None:
+    """A counterfactual ('if ...') routes to orders/METHOD and reads the real causal slice."""
+    client = TestClient(create_app())
+    resp = client.post(
+        "/answer",
+        json={
+            "query_id": "q3",
+            "question": "What happens to GDP if the CentralBank cuts the PolicyLever?",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    retrieval = resp.json()["retrieval"]
+    assert retrieval["act"] == "orders"          # counterfactual -> orders
+    assert retrieval["kind"] == "method"
+    assert retrieval["method"] == "causal_effect"
+    # The method read Γ(q): a real causal effect with an identification status came back.
+    result = retrieval["result"]
+    assert result["answer"] == "causal_effect"
+    assert result["effects"], "expected at least one causal effect from Γ(q)"
+    assert "identification_status" in result["effects"][0]
+
+
+def test_asks_query_retrieves_data() -> None:
+    """A descriptive question routes to asks/DATA and retrieves the state slice."""
+    client = TestClient(create_app())
+    resp = client.post("/answer", json={"query_id": "q4", "question": "Give the GDP reading."})
+    assert resp.status_code == 200, resp.text
+    retrieval = resp.json()["retrieval"]
+    assert retrieval["act"] == "asks"
+    assert retrieval["kind"] == "data"
+    assert "facts" in retrieval
+
+
 def test_answer_grounds_targets_from_ontology() -> None:
     client = TestClient(create_app())
     resp = client.post(

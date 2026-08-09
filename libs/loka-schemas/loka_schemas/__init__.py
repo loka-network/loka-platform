@@ -27,6 +27,7 @@ from .evidence import (
     EvidenceRecord,
     StudyDesign,
 )
+from .method import Method
 from .mission import (
     AuthorityRule,
     HardConstraint,
@@ -83,4 +84,6 @@ __all__ = [
     # simulation / policy (skeleton stages S4–S6)
     "Scenario",
     "DecisionMemo",
+    # KB.METHODS
+    "Method",
 ]

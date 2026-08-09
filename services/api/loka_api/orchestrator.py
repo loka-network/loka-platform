@@ -18,6 +18,7 @@ from fastapi.encoders import jsonable_encoder
 from loka_compiler import compile_wqt
 from loka_schemas import TypedQuery
 
+from .methods import resolve
 from .policy import decide
 from .simulation import simulate
 from .world import World
@@ -36,6 +37,8 @@ def answer(world: World, question: str, *, query_id: str) -> dict[str, Any]:
         scenario_id=query_id,
         causal=world.causal,
     )
+    # 3b · Query dispatch — asks(DATA)->retrieve | orders(METHOD)->apply  (real)
+    retrieval = resolve(q_star, wqt)
     # 4 · Simulate scenarios  (stub)
     scenarios = simulate(wqt)
     # 5 · Decide  (stub)
@@ -45,11 +48,13 @@ def answer(world: World, question: str, *, query_id: str) -> dict[str, Any]:
         "query_id": query_id,
         "question": question,
         "formalized_query": jsonable_encoder(q_star),
+        "retrieval": jsonable_encoder(retrieval),
         "world_model": jsonable_encoder(wqt),
         "scenarios": jsonable_encoder(scenarios),
         "decision": jsonable_encoder(memo),
         "stages": {
             "grounding": grounding_mode,
+            "query_dispatch": "real",
             "compiler": "real",
             "causal": "real" if world.causal is not None else "empty",
             "simulation": "stub",
