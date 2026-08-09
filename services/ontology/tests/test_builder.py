@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from loka_ontology import KeywordBuilder, OntologyEngine, build, load_ontology_str
+import json
+from types import SimpleNamespace
+
+from loka_ontology import KeywordBuilder, LLMBuilder, OntologyEngine, build, load_ontology_str
 
 _TEXT = (
     "The Central Bank sets the Policy Rate. A change in the Policy Rate affects the "
@@ -13,26 +16,56 @@ _TEXT = (
 
 def test_build_produces_loadable_ontology() -> None:
     spec = build([_TEXT], KeywordBuilder())
-    # The proposed ontology is valid (the loader disposed of nothing — it loads).
-    onto = load_ontology_str(spec.ontology_yaml)
+    onto = load_ontology_str(spec.ontology_yaml)  # loader disposed of nothing -> it loads
     engine = OntologyEngine(onto)
     for et in ("CentralBank", "PolicyRate", "ExchangeRate", "GDP"):
         assert engine.has_entity(et), f"expected entity {et}"
 
 
+def test_keyword_builder_extracts_relations_and_verbs() -> None:
+    spec = build([_TEXT], KeywordBuilder())
+    onto = load_ontology_str(spec.ontology_yaml)
+    rel_pairs = {(r.from_type, r.to_type) for r in onto.relations}
+    assert ("CentralBank", "PolicyRate") in rel_pairs  # "Central Bank sets the Policy Rate"
+    assert onto.verbs, "expected action verbs extracted from the relation verbs"
+
+
 def test_build_splits_data_and_method_needs() -> None:
     spec = build([_TEXT], KeywordBuilder())
-    # DATA needs = the entity types the ontology requires.
     assert "GDP" in spec.data_needs
-    # METHODS needs = detected computations (forecast / compare->rank / effect->causal_effect).
     assert "forecast" in spec.method_needs
     assert "causal_effect" in spec.method_needs
-    # Facets are populated (Factual / Cognitive).
-    assert spec.facets["factual"]
-    assert spec.facets["cognitive"]
+    assert spec.facets["factual"] and spec.facets["cognitive"]
 
 
-def test_default_builder_is_keyword() -> None:
-    # build() with no builder uses the deterministic reference (no LLM, reproducible).
-    spec = build([_TEXT])
-    assert spec.ontology_yaml.startswith("version:")
+def _fake_client(payload: dict[str, object]) -> object:
+    text = json.dumps(payload)
+    create = lambda **_: SimpleNamespace(content=[SimpleNamespace(type="text", text=text)])  # noqa: E731
+    return SimpleNamespace(messages=SimpleNamespace(create=create))
+
+
+def test_llm_builder_proposes_subtypes_and_attributes() -> None:
+    payload = {
+        "entities": [
+            {"name": "MacroIndicator"},
+            {
+                "name": "GDP",
+                "subtype_of": "MacroIndicator",
+                "attributes": [{"name": "value", "type": "double"}],
+            },
+            {"name": "CentralBank"},
+            {"name": "PolicyRate"},
+        ],
+        "relations": [["CentralBank", "sets", "PolicyRate"]],
+        "verbs": [["RATE_CHANGE", "institutional"]],
+        "data_needs": ["GDP", "PolicyRate"],
+        "method_needs": ["forecast", "causal_effect"],
+    }
+    spec = build([_TEXT], LLMBuilder(client=_fake_client(payload)))
+    onto = load_ontology_str(spec.ontology_yaml)  # a rich proposal still passes the type system
+
+    assert onto.entities["GDP"].subtype_of == "MacroIndicator"  # subtype
+    props = {p.name for p in onto.entities["GDP"].properties}
+    assert "value" in props  # typed attribute
+    assert any(v.name == "RATE_CHANGE" for v in onto.verbs.values())  # action verb
+    assert "causal_effect" in spec.method_needs

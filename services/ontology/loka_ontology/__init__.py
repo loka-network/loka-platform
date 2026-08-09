@@ -5,6 +5,7 @@ Downstream services (grounding, compiler) access the ontology only through this 
 """
 
 from .builder import (
+    EntityDraft,
     KeywordBuilder,
     LLMBuilder,
     OntologyBuilder,
@@ -42,6 +43,7 @@ __all__ = [
     "LLMBuilder",
     "OntologyBuilder",
     "OntologyDraft",
+    "EntityDraft",
     "SouffleTypeChecker",
     "SouffleUnavailable",
     "souffle_available",
