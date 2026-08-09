@@ -23,6 +23,7 @@ from .infer import (
 )
 from .loader import OntologyLoadError, load_ontology, load_ontology_str
 from .model import (
+    ActionType,
     BaseType,
     Cardinality,
     EntityType,
@@ -57,6 +58,7 @@ __all__ = [
     "guess_primary_key",
     "to_yaml",
     "Ontology",
+    "ActionType",
     "EntityType",
     "Property",
     "BaseType",

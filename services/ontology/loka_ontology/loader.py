@@ -12,6 +12,7 @@ from typing import Any
 import yaml
 
 from .model import (
+    ActionType,
     BaseType,
     Cardinality,
     EntityType,
@@ -100,12 +101,25 @@ def _parse(raw: dict[str, Any]) -> Ontology:
             )
         )
 
+    actions: list[ActionType] = []
+    for item in raw.get("actions", []) or []:
+        actions.append(
+            ActionType(
+                name=item["name"],
+                verb=item["verb"],
+                target=item["target"],
+                guard=item.get("guard", ""),
+                effect=item.get("effect", ""),
+            )
+        )
+
     onto = Ontology(
         version=version,
         entities=entities,
         verbs=verbs,
         relations=relations,
         constraints=constraints,
+        actions=actions,
     )
     _validate_references(onto)
     return onto
@@ -153,6 +167,11 @@ def _validate_references(onto: Ontology) -> None:
         for t in (c.agent_must_be, *c.target_must_be):
             if t not in onto.entities:
                 raise OntologyLoadError(f"constraint references undefined type {t}")
+    for a in onto.actions:
+        if a.verb not in onto.verbs:
+            raise OntologyLoadError(f"action {a.name} references undefined verb {a.verb}")
+        if a.target not in onto.entities:
+            raise OntologyLoadError(f"action {a.name} references undefined target {a.target}")
     _check_no_cycles(onto)
 
 

@@ -15,7 +15,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
 
-from .model import BaseType, Cardinality, Ontology, Property, Relation, VerbClass
+from .model import ActionType, BaseType, Cardinality, Ontology, Property, Relation, VerbClass
 
 
 @dataclass(frozen=True)
@@ -66,6 +66,10 @@ class OntologyEngine:
     def entity_types(self) -> list[str]:
         """All registered entity type names (used by grounding for candidate lookup)."""
         return list(self._onto.entities)
+
+    def action_types(self) -> list[ActionType]:
+        """All action types A (Ω's 4th primitive) — consumed by the action layer."""
+        return list(self._onto.actions)
 
     def subtypes_of(self, name: str) -> list[str]:
         """All transitive descendants of ``name`` along ⪯ (excluding itself).

@@ -100,11 +100,29 @@ class TypingConstraint:
     target_must_be: tuple[str, ...]  # target must be ⪯ one of these
 
 
+@dataclass(frozen=True)
+class ActionType:
+    """An action the agent can perform — Ω's 4th primitive: a guard and an effect.
+
+    ``verb`` names the action verb (must be a Verb in V); ``target`` the entity type it acts on;
+    ``guard`` a precondition that must hold in the world state before it may run; ``effect`` the
+    state change it produces. The declarative guard/effect strings are the starting point; the
+    action layer evaluates them and gates execution.
+    """
+
+    name: str
+    verb: str
+    target: str
+    guard: str = ""
+    effect: str = ""
+
+
 @dataclass
 class Ontology:
-    """A complete ontology Ω = (E, V, R, ⪯, CΩ).
+    """A complete ontology Ω = (E, V, R, ⪯, CΩ, A).
 
-    The subtype order ⪯ is encoded in each EntityType's ``subtype_of`` field.
+    The subtype order ⪯ is encoded in each EntityType's ``subtype_of`` field. ``actions`` (A) is
+    the action-type set — the 4th primitive.
     """
 
     version: str
@@ -112,3 +130,4 @@ class Ontology:
     verbs: dict[str, Verb] = field(default_factory=dict)
     relations: list[Relation] = field(default_factory=list)
     constraints: list[TypingConstraint] = field(default_factory=list)
+    actions: list[ActionType] = field(default_factory=list)
