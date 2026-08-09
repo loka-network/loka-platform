@@ -29,6 +29,12 @@ class CompileRequest(BaseModel):
     signature: str | None = None
 
 
+class BuildKBRequest(BaseModel):
+    """Domain texts posted to /build-kb (Workflow A: texts -> ontology + DATA/METHODS)."""
+
+    texts: list[str]
+
+
 class AnswerRequest(BaseModel):
     """A natural-language question posted to /answer (the full slide-6 chain)."""
 
@@ -75,6 +81,19 @@ def create_app(world: World | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         encoded: dict[str, Any] = jsonable_encoder(wqt)
         return encoded
+
+    @app.post("/build-kb")
+    def build_kb_endpoint(req: BuildKBRequest) -> dict[str, Any]:
+        """Workflow A: domain texts -> validated ontology + DATA/METHODS needs (a KBSpec)."""
+        from loka_ontology import OntologyLoadError, build
+
+        if not req.texts:
+            raise HTTPException(status_code=400, detail="no texts provided")
+        try:
+            spec = build(req.texts)
+        except OntologyLoadError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return jsonable_encoder(spec)
 
     @app.post("/answer")
     def answer_endpoint(req: AnswerRequest) -> dict[str, Any]:
