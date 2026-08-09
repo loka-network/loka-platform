@@ -118,6 +118,25 @@ def build_default_world() -> World:
     )
 
 
+def world_from_kbspec(spec: object) -> World:
+    """Build a queryable World from a Workflow-A KBSpec — closing the build->answer loop.
+
+    The built ontology comes from ``spec.ontology_yaml``; state and causal start empty (Workflow
+    A produces the ontology + DATA/METHODS needs, not yet the data or causal edges), and a signed
+    default mission lets the compiler run. Queries against this world therefore ground and compile
+    against the just-built ontology, with empty state/causal until those are ingested.
+    """
+    ontology_yaml = getattr(spec, "ontology_yaml")
+    engine = OntologyEngine(load_ontology_str(ontology_yaml))
+    return World(
+        engine=engine,
+        state=WorldState(),
+        mission=_demo_mission(),
+        causal=None,
+        backend="built-kb",
+    )
+
+
 def build_world_from_env() -> World:
     """Use real backends if configured (NEO4J_URI + LOKA_PG_DSN); else in-memory."""
     neo4j_uri = os.environ.get("NEO4J_URI")

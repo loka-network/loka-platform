@@ -40,6 +40,7 @@ class AnswerRequest(BaseModel):
 
     query_id: str
     question: str
+    kb_id: str | None = None  # answer against a KB built via /build-kb; else the default world
 
 
 class OntologyCompileRequest(BaseModel):
@@ -54,6 +55,7 @@ class OntologyCompileRequest(BaseModel):
 def create_app(world: World | None = None) -> FastAPI:
     app = FastAPI(title="Loka Platform API", version="0.0.1")
     app.state.world = world or build_world_from_env()
+    app.state.kb_worlds = {}  # kb_id -> World, populated by /build-kb
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -93,7 +95,15 @@ def create_app(world: World | None = None) -> FastAPI:
             spec = build(req.texts)
         except OntologyLoadError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        return jsonable_encoder(spec)
+        import uuid
+
+        from .world import world_from_kbspec
+
+        kb_id = uuid.uuid4().hex[:12]
+        app.state.kb_worlds[kb_id] = world_from_kbspec(spec)
+        out: dict[str, Any] = jsonable_encoder(spec)
+        out["kb_id"] = kb_id  # pass to /answer to query against this built KB
+        return out
 
     @app.post("/answer")
     def answer_endpoint(req: AnswerRequest) -> dict[str, Any]:
@@ -104,6 +114,10 @@ def create_app(world: World | None = None) -> FastAPI:
         from .orchestrator import answer
 
         w: World = app.state.world
+        if req.kb_id is not None:
+            w = app.state.kb_worlds.get(req.kb_id)
+            if w is None:
+                raise HTTPException(status_code=404, detail=f"unknown kb_id: {req.kb_id}")
         try:
             return answer(w, req.question, query_id=req.query_id)
         except CompileError as exc:
