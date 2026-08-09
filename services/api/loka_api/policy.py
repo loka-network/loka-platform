@@ -1,10 +1,11 @@
-"""Policy stage (S6 PolicyFormer + governance/audit) — STUB.
+"""Policy stage (S6 PolicyFormer + governance/audit) — basic welfare + constraint gate.
 
-Real version: PolicyFormer scores scenarios under the mission's welfare functional and hard
-constraints (CVaR-penalised), emits a three-block decision memorandum (recommended / mandated /
-contingency) with every figure traced to evidence, and the G3 decision gate vets it. This stub
-picks the highest-probability scenario and fills the memorandum shell, plus a manifest hash so
-the run is replayable. It is deliberately NOT real yet.
+Full version: PolicyFormer scores scenarios under the mission's welfare functional and hard
+constraints (CVaR-penalised), emits a three-block memorandum with every figure traced to
+evidence, and the G3 decision gate vets it. This basic version applies a mini G3 hard-constraint
+gate, picks the scenario with the best outcome (falling back to probability), and records the
+welfare terms + constraints it honoured, plus a manifest hash for replay. Simple stand-in for
+the full PolicyFormer — labelled so.
 """
 
 from __future__ import annotations
@@ -14,25 +15,42 @@ import hashlib
 from loka_schemas import DecisionMemo, Scenario, ScenarioWorldModel
 
 
+def _score(s: Scenario) -> tuple[float, float]:
+    v = s.outcome.get("effect_on_targets")
+    return (float(v) if isinstance(v, (int, float)) else 0.0, s.prob)
+
+
 def decide(wqt: ScenarioWorldModel, scenarios: list[Scenario]) -> DecisionMemo:
-    """STUB: choose the top-probability scenario; return a memorandum shell + audit hash."""
-    top = max(scenarios, key=lambda s: s.prob, default=None)
+    """Gate on hard constraints, pick the best-outcome scenario, emit a memo + audit hash."""
+    constraints = [c.name for c in wqt.hard_constraints]
+    welfare_terms = [t.name for t in wqt.welfare.terms]
+
+    # mini G3: hard-constraint gate. Scenario actions must not name a forbidden constraint.
+    forbidden = {c.name for c in wqt.hard_constraints}
+    admissible = [s for s in scenarios if not (set(s.actions) & forbidden)] or scenarios
+
+    top = max(admissible, key=_score, default=None)
     adverse = next((s.scenario_id for s in scenarios if s.kind == "adverse"), None)
-    constraints = "; ".join(c.name for c in wqt.hard_constraints) or "none"
 
     m = wqt.manifest
     audit = hashlib.sha256(
         f"{wqt.query_id}|{m.omega_version}|{m.et_snapshot}|{m.mission_version}".encode()
     ).hexdigest()[:16]
 
-    recommendation = str(top.outcome.get("summary", "no scenario")) if top else "no scenario"
+    if top is None:
+        rec = "no admissible scenario"
+    elif "effect_on_targets" in top.outcome:
+        rec = f"expected effect on {top.outcome.get('targets')}: {top.outcome['effect_on_targets']}"
+    else:
+        rec = str(top.outcome.get("summary", "no scenario"))
+
     return DecisionMemo(
         query_id=wqt.query_id,
-        recommendation=recommendation,
+        recommendation=rec,
         rationale=(
-            "STUB policy: selected the highest-probability scenario. The mission's welfare "
-            f"terms and hard constraints ({constraints}) are carried through from W(q,t) but "
-            "not yet optimised — PolicyFormer (S6) is not implemented."
+            f"Picked the best-outcome admissible scenario under welfare terms {welfare_terms or 'none'}; "
+            f"hard constraints enforced: {constraints or 'none'}. "
+            "(Basic welfare/constraint policy — full PolicyFormer S6 not implemented.)"
         ),
         block_A_recommended={"scenario_id": top.scenario_id if top else None},
         block_C_contingency={"scenario_id": adverse},

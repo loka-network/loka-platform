@@ -39,10 +39,11 @@ def answer(world: World, question: str, *, query_id: str) -> dict[str, Any]:
     )
     # 3b · Query dispatch — asks(DATA)->retrieve | orders(METHOD)->apply  (real)
     retrieval = resolve(q_star, wqt)
-    # 4 · Simulate scenarios  (stub)
+    # 4 · Simulate scenarios  (basic: causal-driven when Γ(q) has claims, else canned)
     scenarios = simulate(wqt)
-    # 5 · Decide  (stub)
+    # 5 · Decide  (basic: welfare + hard-constraint gate)
     memo = decide(wqt, scenarios)
+    has_causal_claims = bool(wqt.causal_slice and wqt.causal_slice.claims)
 
     return {
         "query_id": query_id,
@@ -57,8 +58,8 @@ def answer(world: World, question: str, *, query_id: str) -> dict[str, Any]:
             "query_dispatch": "real",
             "compiler": "real",
             "causal": "real" if world.causal is not None else "empty",
-            "simulation": "stub",
-            "policy": "stub",
+            "simulation": "basic" if has_causal_claims else "stub",
+            "policy": "basic",
         },
     }
 
