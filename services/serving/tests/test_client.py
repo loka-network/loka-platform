@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from loka_api.llm_client import OpenAICompatClient
+from loka_serving.client import OpenAICompatClient
 
 
 def test_openai_compat_adapter_wraps_response() -> None:

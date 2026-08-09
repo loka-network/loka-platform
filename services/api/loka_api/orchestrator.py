@@ -95,11 +95,12 @@ def _make_proposer(entity_types: list[str]) -> tuple[object, str]:
     if os.getenv("LOKA_LLM_GROUNDING", "").lower() in ("1", "true", "yes"):
         try:
             from loka_grounding.llm_proposer import LLMProposer
-
-            from .llm_client import default_model, make_llm_client
+            from loka_serving import llm_for, model_for
 
             proposer = LLMProposer(
-                entity_types=entity_types, client=make_llm_client(), model=default_model()
+                entity_types=entity_types,
+                client=llm_for("grounding"),
+                model=model_for("grounding"),
             )
             return proposer, "llm"
         except Exception:

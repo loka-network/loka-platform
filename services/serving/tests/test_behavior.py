@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from loka_api.behavior import BehaviorEngine, LLMBehaviorEngine, Persona, StubBehaviorEngine
+from loka_serving.behavior import BehaviorEngine, LLMBehaviorEngine, Persona, StubBehaviorEngine
 
 
 def test_stub_behavior_engine_conforms_to_port() -> None:
