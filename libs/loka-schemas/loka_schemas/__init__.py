@@ -20,6 +20,7 @@ from .causal import (
     UseCase,
 )
 from .data import Interval, Lineage, TypedPredicate, TypedRow
+from .decision import DecisionMemo
 from .evidence import (
     ContradictionRecord,
     DisagreementType,
@@ -35,6 +36,7 @@ from .mission import (
 )
 from .ports import CausalSlicer, OntologyView, StateView
 from .query import TypedQuery
+from .scenario import Scenario
 from .wqt import ManifestPins, ScenarioStatePackage, ScenarioWorldModel
 
 __all__ = [
@@ -78,4 +80,7 @@ __all__ = [
     "ScenarioWorldModel",
     "ScenarioStatePackage",
     "ManifestPins",
+    # simulation / policy (skeleton stages S4–S6)
+    "Scenario",
+    "DecisionMemo",
 ]

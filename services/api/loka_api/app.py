@@ -29,6 +29,13 @@ class CompileRequest(BaseModel):
     signature: str | None = None
 
 
+class AnswerRequest(BaseModel):
+    """A natural-language question posted to /answer (the full slide-6 chain)."""
+
+    query_id: str
+    question: str
+
+
 class OntologyCompileRequest(BaseModel):
     """An externally-built ontology posted to /compile-ontology (S1 + S2 → W(q,t))."""
 
@@ -68,6 +75,20 @@ def create_app(world: World | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         encoded: dict[str, Any] = jsonable_encoder(wqt)
         return encoded
+
+    @app.post("/answer")
+    def answer_endpoint(req: AnswerRequest) -> dict[str, Any]:
+        """Full chain: NL question -> grounding -> W(q,t) -> simulation -> policy -> Response.
+
+        Stages 2/3 are real; 4/5 are stubs (see the ``stages`` field of the response).
+        """
+        from .orchestrator import answer
+
+        w: World = app.state.world
+        try:
+            return answer(w, req.question, query_id=req.query_id)
+        except CompileError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.post("/compile-ontology")
     def compile_ontology_endpoint(req: OntologyCompileRequest) -> dict[str, Any]:
