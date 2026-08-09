@@ -35,6 +35,13 @@ class BuildKBRequest(BaseModel):
     texts: list[str]
 
 
+class IngestRequest(BaseModel):
+    """Data rows and causal claims to fill a built KB's DATA/METHODS needs."""
+
+    data: list[dict[str, Any]] = []
+    causal: list[dict[str, Any]] = []
+
+
 class AnswerRequest(BaseModel):
     """A natural-language question posted to /answer (the full slide-6 chain)."""
 
@@ -104,6 +111,20 @@ def create_app(world: World | None = None) -> FastAPI:
         out: dict[str, Any] = jsonable_encoder(spec)
         out["kb_id"] = kb_id  # pass to /answer to query against this built KB
         return out
+
+    @app.post("/kb/{kb_id}/ingest")
+    def ingest_endpoint(kb_id: str, req: IngestRequest) -> dict[str, Any]:
+        """Fill a built KB with data rows and causal claims, so /answer returns substance."""
+        from .ingest import ingest_causal, ingest_data
+
+        w = app.state.kb_worlds.get(kb_id)
+        if w is None:
+            raise HTTPException(status_code=404, detail=f"unknown kb_id: {kb_id}")
+        return {
+            "kb_id": kb_id,
+            "data_ingested": ingest_data(w, req.data),
+            "causal_ingested": ingest_causal(w, req.causal),
+        }
 
     @app.post("/answer")
     def answer_endpoint(req: AnswerRequest) -> dict[str, Any]:
