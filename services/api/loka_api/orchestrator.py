@@ -26,7 +26,7 @@ from .world import World
 def answer(world: World, question: str, *, query_id: str) -> dict[str, Any]:
     """Run one natural-language question through the whole chain; return a Response dict."""
     # 3 · Semantic analysis / formalized query  (real when loka_grounding is installed)
-    q_star = _formalize(world, question, query_id=query_id)
+    q_star, grounding_mode = _formalize(world, question, query_id=query_id)
     # 2 · Compile the per-question world model W(q, t)  (real)
     wqt = compile_wqt(
         world.engine,
@@ -49,7 +49,7 @@ def answer(world: World, question: str, *, query_id: str) -> dict[str, Any]:
         "scenarios": jsonable_encoder(scenarios),
         "decision": jsonable_encoder(memo),
         "stages": {
-            "grounding": "real",
+            "grounding": grounding_mode,
             "compiler": "real",
             "causal": "real" if world.causal is not None else "empty",
             "simulation": "stub",
@@ -58,20 +58,42 @@ def answer(world: World, question: str, *, query_id: str) -> dict[str, Any]:
     }
 
 
-def _formalize(world: World, question: str, *, query_id: str) -> TypedQuery:
-    """3 · NL -> q*. Uses loka_grounding when available; else a minimal typed-query fallback."""
+def _formalize(world: World, question: str, *, query_id: str) -> tuple[TypedQuery, str]:
+    """3 · NL -> q*. Returns (q*, mode). Uses loka_grounding when available.
+
+    Proposer selection: the LLM proposer runs only when ``LOKA_LLM_GROUNDING`` is set (and the
+    'anthropic' extra + credentials resolve); otherwise the deterministic keyword proposer runs,
+    so tests and offline/sovereign deployments stay reproducible. Either way the binder validates
+    the proposal against the ontology, so a hallucinated entity is rejected, not trusted.
+    """
     entity_types = _entity_types(world)
     try:
-        from loka_grounding import KeywordProposer, ground
+        from loka_grounding import ground
     except Exception:
         # Grounding package not importable in this env — keep the skeleton walking.
         targets = tuple(et for et in entity_types if et.lower() in question.lower())
-        return TypedQuery(
-            query_id=query_id, task_type="descriptive", targets=targets, signature=None
-        )
-    proposer = KeywordProposer(entity_types=entity_types)
+        q = TypedQuery(query_id=query_id, task_type="descriptive", targets=targets, signature=None)
+        return q, "fallback (grounding pkg absent)"
+
+    proposer, mode = _make_proposer(entity_types)
     q_star: TypedQuery = ground(question, proposer, world.engine, query_id=query_id)
-    return q_star
+    return q_star, f"real ({mode})"
+
+
+def _make_proposer(entity_types: list[str]) -> tuple[object, str]:
+    """Pick the grounding proposer: LLM when opted in and available, else keyword reference."""
+    import os
+
+    from loka_grounding import KeywordProposer
+
+    if os.getenv("LOKA_LLM_GROUNDING", "").lower() in ("1", "true", "yes"):
+        try:
+            from loka_grounding.llm_proposer import LLMProposer
+
+            return LLMProposer(entity_types=entity_types), "llm"
+        except Exception:
+            pass  # fall through to the deterministic reference proposer
+    return KeywordProposer(entity_types=entity_types), "keyword"
 
 
 def _entity_types(world: World) -> list[str]:

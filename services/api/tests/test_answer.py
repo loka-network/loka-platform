@@ -28,7 +28,7 @@ def test_answer_walks_end_to_end() -> None:
 
     # Honesty about what is real vs stub.
     assert body["stages"]["compiler"] == "real"
-    assert body["stages"]["grounding"] == "real"
+    assert body["stages"]["grounding"].startswith("real")  # "real (keyword)" or "real (llm)"
     assert body["stages"]["simulation"] == "stub"
     assert body["stages"]["policy"] == "stub"
 
