@@ -96,7 +96,12 @@ def _make_proposer(entity_types: list[str]) -> tuple[object, str]:
         try:
             from loka_grounding.llm_proposer import LLMProposer
 
-            return LLMProposer(entity_types=entity_types), "llm"
+            from .llm_client import default_model, make_llm_client
+
+            proposer = LLMProposer(
+                entity_types=entity_types, client=make_llm_client(), model=default_model()
+            )
+            return proposer, "llm"
         except Exception:
             pass  # fall through to the deterministic reference proposer
     return KeywordProposer(entity_types=entity_types), "keyword"
