@@ -156,6 +156,14 @@ def create_app(world: World | None = None) -> FastAPI:
     except Exception:  # ontology inconsistent with the method -> fall back, mark unvalidated
         app.state.health_method = method_spec(None)
 
+    # Governance context for the slide-6 policy stage, sourced from Ω (version + action guard),
+    # so the decision memo's enforced constraint is the ontology's, not a hardcoded string.
+    _eng = app.state.health_engine
+    app.state.health_governance = {
+        "ontology_version": _eng.version if _eng else "unversioned",
+        "guard": next((a.guard for a in _eng.action_types() if a.guard), "") if _eng else "",
+    }
+
     @app.get("/health")
     def health() -> dict[str, str]:
         w: World = app.state.world
@@ -373,6 +381,19 @@ def create_app(world: World | None = None) -> FastAPI:
         result["question"] = req.question
         result["formalized_query"] = {"country": iso, "new_spending": spending}
         result["speech_act"] = {"act": "orders", "query": q.render(), "response": informs.render()}
+
+        # slide-6 right half: run the method result through Simulation -> Policy -> Decision memo.
+        proj = result.get("controlled")
+        if isinstance(proj, dict) and "projected_outcome" in proj:
+            from .health_policy import slide6_right_half
+
+            gov = app.state.health_governance
+            rh = slide6_right_half(
+                proj, iso=iso, ontology_version=gov["ontology_version"],
+                guard=gov["guard"], method_name="project_under5_mortality",
+            )
+            result["scenarios"] = rh["scenarios"]
+            result["decision"] = rh["decision"]
         return result
 
     @app.post("/kb/{kb_id}/ingest")
