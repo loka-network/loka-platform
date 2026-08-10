@@ -54,6 +54,13 @@ class ProjectRequest(BaseModel):
     mode: str = "both"
 
 
+class AskRequest(BaseModel):
+    """A natural-language projection question (Workflow B, full NL): the LLM extracts the params."""
+
+    question: str
+    mode: str = "both"
+
+
 # health scenario config (which panel columns are outcome / dial / controls)
 _H_OUTCOME = "under5_mortality"
 _H_DIAL = "health_exp_per_capita"
@@ -80,6 +87,36 @@ def _load_health_panel() -> list[dict[str, Any]] | None:
             with open(p) as f:
                 return list(csv.DictReader(f))
     return None
+
+
+def _project_health(
+    panel: list[dict[str, Any]], iso: str, new_spending: float, mode: str
+) -> dict[str, Any]:
+    """Run the controlled-projection method for one country; shared by /project and /ask."""
+    from .projection import controlled_projection
+
+    rows = [r for r in panel if r["iso3"] == iso]
+    target = max(rows, key=lambda r: int(r["year"]))
+    out: dict[str, Any] = {
+        "country": target["country"],
+        "iso3": iso,
+        "year": target["year"],
+        "current_spending": float(target[_H_DIAL]),
+        "current_under5_mortality": float(target[_H_OUTCOME]),
+        "new_spending": new_spending,
+        "panel_rows": len(panel),
+    }
+    if mode in ("both", "controlled"):
+        out["controlled"] = controlled_projection(
+            panel, outcome=_H_OUTCOME, dial=_H_DIAL, controls=_H_CONTROLS,
+            target=target, new_dial=new_spending, log_cols=_H_LOG,
+        )
+    if mode in ("both", "naive"):
+        out["naive"] = controlled_projection(
+            panel, outcome=_H_OUTCOME, dial=_H_DIAL, controls=[],
+            target=target, new_dial=new_spending, log_cols=[_H_DIAL],
+        )
+    return out
 
 
 class AnswerRequest(BaseModel):
@@ -183,39 +220,50 @@ def create_app(world: World | None = None) -> FastAPI:
             out["build_note"] = build_note  # why the LLM path was skipped, if it was
         return out
 
-    @app.post("/project")
-    def project_endpoint(req: ProjectRequest) -> dict[str, Any]:
-        """Workflow B / KB.METHODS: project under-5 mortality if a country changes health spending."""
-        from .projection import controlled_projection
-
+    def _panel_or_500() -> list[dict[str, Any]]:
         panel = app.state.__dict__.setdefault("_health_panel", _load_health_panel())
         if not panel:
             raise HTTPException(status_code=500, detail="health panel not found (set LOKA_HEALTH_PANEL)")
-        rows = [r for r in panel if r["iso3"] == req.country.upper()]
-        if not rows:
-            raise HTTPException(status_code=404, detail=f"unknown country: {req.country}")
-        target = max(rows, key=lambda r: int(r["year"]))
+        return panel
 
-        out: dict[str, Any] = {
-            "country": target["country"],
-            "iso3": req.country.upper(),
-            "year": target["year"],
-            "current_spending": float(target[_H_DIAL]),
-            "current_under5_mortality": float(target[_H_OUTCOME]),
-            "new_spending": req.new_spending,
-            "panel_rows": len(panel),
-        }
-        if req.mode in ("both", "controlled"):
-            out["controlled"] = controlled_projection(
-                panel, outcome=_H_OUTCOME, dial=_H_DIAL, controls=_H_CONTROLS,
-                target=target, new_dial=req.new_spending, log_cols=_H_LOG,
+    @app.post("/project")
+    def project_endpoint(req: ProjectRequest) -> dict[str, Any]:
+        """Workflow B / KB.METHODS: project under-5 mortality if a country changes health spending."""
+        panel = _panel_or_500()
+        iso = req.country.upper()
+        if not any(r["iso3"] == iso for r in panel):
+            raise HTTPException(status_code=404, detail=f"unknown country: {req.country}")
+        return _project_health(panel, iso, req.new_spending, req.mode)
+
+    @app.post("/ask")
+    def ask_endpoint(req: AskRequest) -> dict[str, Any]:
+        """Full Workflow B: a natural-language question -> LLM extracts {country, new_spending}
+        -> the projection method runs. The 'formalized_query' field shows what the LLM extracted."""
+        from .nl_project import as_spending, extract_projection, resolve_country
+
+        panel = _panel_or_500()
+        try:
+            from loka_serving import llm_for, model_for
+
+            proposal = extract_projection(req.question, llm_for("projection"), model_for("projection"))
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(
+                status_code=503,
+                detail=f"NL parsing needs an LLM (set OPENAI_*/ANTHROPIC_* + provider): {exc}",
+            ) from exc
+
+        iso = resolve_country(panel, proposal.get("country"))
+        spending = as_spending(proposal.get("new_spending"))
+        if iso is None or spending is None:
+            raise HTTPException(
+                status_code=422,
+                detail={"error": "could_not_ground_query", "formalized_query": proposal},
             )
-        if req.mode in ("both", "naive"):
-            out["naive"] = controlled_projection(
-                panel, outcome=_H_OUTCOME, dial=_H_DIAL, controls=[],
-                target=target, new_dial=req.new_spending, log_cols=[_H_DIAL],
-            )
-        return out
+
+        result = _project_health(panel, iso, spending, req.mode)
+        result["question"] = req.question
+        result["formalized_query"] = {"country": iso, "new_spending": spending}
+        return result
 
     @app.post("/kb/{kb_id}/ingest")
     def ingest_endpoint(kb_id: str, req: IngestRequest) -> dict[str, Any]:
