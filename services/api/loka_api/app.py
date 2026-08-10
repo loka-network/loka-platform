@@ -42,6 +42,46 @@ class IngestRequest(BaseModel):
     causal: list[dict[str, Any]] = []
 
 
+class ProjectRequest(BaseModel):
+    """A projection query (Workflow B, orders -> KB.METHODS): move a policy dial, project outcome.
+
+    The health scenario: for ``country`` (ISO3), if health spending per capita -> ``new_spending``,
+    project under-5 mortality. ``mode`` = controlled | naive | both.
+    """
+
+    country: str
+    new_spending: float
+    mode: str = "both"
+
+
+# health scenario config (which panel columns are outcome / dial / controls)
+_H_OUTCOME = "under5_mortality"
+_H_DIAL = "health_exp_per_capita"
+_H_CONTROLS = [
+    "gdp_per_capita", "immunization_dpt", "sanitation_access",
+    "water_access", "fertility_rate", "urban_pct",
+]
+_H_LOG = ["health_exp_per_capita", "gdp_per_capita"]
+
+
+def _load_health_panel() -> list[dict[str, Any]] | None:
+    """Load the real World Bank health panel (env override, else repo/cwd examples/)."""
+    import csv
+    import os
+
+    here = os.path.dirname(__file__)
+    candidates = [
+        os.getenv("LOKA_HEALTH_PANEL"),
+        os.path.join(here, "..", "..", "..", "examples", "health_panel.csv"),
+        os.path.join(os.getcwd(), "examples", "health_panel.csv"),
+    ]
+    for p in candidates:
+        if p and os.path.exists(p):
+            with open(p) as f:
+                return list(csv.DictReader(f))
+    return None
+
+
 class AnswerRequest(BaseModel):
     """A natural-language question posted to /answer (the full slide-6 chain)."""
 
@@ -141,6 +181,40 @@ def create_app(world: World | None = None) -> FastAPI:
         out["builder"] = builder_mode  # 'llm' (professor's way) or 'keyword' (rule-based)
         if build_note:
             out["build_note"] = build_note  # why the LLM path was skipped, if it was
+        return out
+
+    @app.post("/project")
+    def project_endpoint(req: ProjectRequest) -> dict[str, Any]:
+        """Workflow B / KB.METHODS: project under-5 mortality if a country changes health spending."""
+        from .projection import controlled_projection
+
+        panel = app.state.__dict__.setdefault("_health_panel", _load_health_panel())
+        if not panel:
+            raise HTTPException(status_code=500, detail="health panel not found (set LOKA_HEALTH_PANEL)")
+        rows = [r for r in panel if r["iso3"] == req.country.upper()]
+        if not rows:
+            raise HTTPException(status_code=404, detail=f"unknown country: {req.country}")
+        target = max(rows, key=lambda r: int(r["year"]))
+
+        out: dict[str, Any] = {
+            "country": target["country"],
+            "iso3": req.country.upper(),
+            "year": target["year"],
+            "current_spending": float(target[_H_DIAL]),
+            "current_under5_mortality": float(target[_H_OUTCOME]),
+            "new_spending": req.new_spending,
+            "panel_rows": len(panel),
+        }
+        if req.mode in ("both", "controlled"):
+            out["controlled"] = controlled_projection(
+                panel, outcome=_H_OUTCOME, dial=_H_DIAL, controls=_H_CONTROLS,
+                target=target, new_dial=req.new_spending, log_cols=_H_LOG,
+            )
+        if req.mode in ("both", "naive"):
+            out["naive"] = controlled_projection(
+                panel, outcome=_H_OUTCOME, dial=_H_DIAL, controls=[],
+                target=target, new_dial=req.new_spending, log_cols=[_H_DIAL],
+            )
         return out
 
     @app.post("/kb/{kb_id}/ingest")
