@@ -19,7 +19,8 @@ from typing import Any
 
 
 def default_model() -> str:
-    return os.getenv("LOKA_LLM_MODEL", "claude-opus-4-8")
+    # LOKA_LLM_MODEL wins; else the standard OPENAI_MODEL (existing proxy setups); else default.
+    return os.getenv("LOKA_LLM_MODEL") or os.getenv("OPENAI_MODEL") or "claude-opus-4-8"
 
 
 class _OpenAICompatMessages:
@@ -68,13 +69,22 @@ class OpenAICompatClient:
 
 
 def make_llm_client() -> Any:
-    """Return an LLM client selected by ``LOKA_LLM_PROVIDER`` (anthropic | openai | vllm)."""
-    provider = os.getenv("LOKA_LLM_PROVIDER", "anthropic").lower()
-    if provider in ("openai", "vllm", "openai-compatible"):
-        return OpenAICompatClient(
-            base_url=os.getenv("LOKA_LLM_BASE_URL"),
-            api_key=os.getenv("LOKA_LLM_API_KEY"),
-        )
+    """Return an LLM client.
+
+    Selection order:
+      1. ``LOKA_LLM_PROVIDER`` = openai | vllm  -> OpenAI-compatible;  = anthropic -> Anthropic.
+      2. No provider set but an OpenAI-compatible endpoint is configured via the standard
+         ``OPENAI_BASE_URL`` / ``OPENAI_API_KEY`` (existing proxy setups, e.g. praka.ai) -> use it.
+      3. Otherwise -> Anthropic direct.
+    ``LOKA_LLM_*`` vars take precedence over the ``OPENAI_*`` ones when both are present.
+    """
+    provider = os.getenv("LOKA_LLM_PROVIDER", "").lower()
+    base_url = os.getenv("LOKA_LLM_BASE_URL") or os.getenv("OPENAI_BASE_URL")
+    api_key = os.getenv("LOKA_LLM_API_KEY") or os.getenv("OPENAI_API_KEY")
+
+    if provider in ("openai", "vllm", "openai-compatible") or (not provider and base_url):
+        return OpenAICompatClient(base_url=base_url, api_key=api_key)
+
     import anthropic  # optional dependency, imported lazily
 
     return anthropic.Anthropic()

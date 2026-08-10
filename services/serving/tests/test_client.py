@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from loka_serving.client import OpenAICompatClient
+import pytest
+from loka_serving.client import OpenAICompatClient, default_model, make_llm_client
 
 
 def test_openai_compat_adapter_wraps_response() -> None:
@@ -34,3 +35,22 @@ def test_openai_compat_adapter_wraps_response() -> None:
     # system was folded into messages for the OpenAI schema.
     assert captured["messages"][0] == {"role": "system", "content": "you are terse"}
     assert captured["model"] == "Qwen3-32B"
+
+
+def test_make_llm_client_picks_up_openai_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Existing proxy setup (OPENAI_* vars, e.g. praka.ai) is used without any LOKA_LLM_* vars.
+    monkeypatch.delenv("LOKA_LLM_PROVIDER", raising=False)
+    monkeypatch.delenv("LOKA_LLM_BASE_URL", raising=False)
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://praka.ai/v1")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    assert isinstance(make_llm_client(), OpenAICompatClient)
+
+
+def test_default_model_precedence(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("LOKA_LLM_MODEL", raising=False)
+    monkeypatch.delenv("OPENAI_MODEL", raising=False)
+    assert default_model() == "claude-opus-4-8"
+    monkeypatch.setenv("OPENAI_MODEL", "claude-opus-4-6")
+    assert default_model() == "claude-opus-4-6"
+    monkeypatch.setenv("LOKA_LLM_MODEL", "Qwen3-32B")
+    assert default_model() == "Qwen3-32B"
