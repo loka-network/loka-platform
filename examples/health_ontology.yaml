@@ -1,0 +1,20 @@
+version: health-v1
+entities:
+  - type: Country
+    properties:
+      - {name: under5_mortality,      type: double}   # outcome
+      - {name: health_exp_per_capita, type: double}   # policy dial
+      - {name: gdp_per_capita,        type: double}   # control
+      - {name: immunization_dpt,      type: double}   # control
+      - {name: sanitation_access,     type: double}   # control
+      - {name: water_access,          type: double}   # control
+      - {name: fertility_rate,        type: double}   # control
+      - {name: urban_pct,             type: double}   # control
+verbs:
+  - {name: SET_HEALTH_BUDGET, class: institutional}
+actions:
+  - name: RaiseHealthSpending
+    verb: SET_HEALTH_BUDGET
+    target: Country
+    guard: "health_exp_per_capita > 0"
+    effect: "health_exp_per_capita increases to the chosen level"
