@@ -23,6 +23,7 @@ def test_build_kb_endpoint() -> None:
     assert "GDP" in spec["data_needs"]
     assert "causal_effect" in spec["method_needs"]
     assert spec["facets"]["factual"]
+    assert spec["builder"] == "keyword"  # rule-based by default (no LLM configured)
 
 
 def test_build_kb_rejects_empty() -> None:

@@ -93,23 +93,46 @@ def create_app(world: World | None = None) -> FastAPI:
 
     @app.post("/build-kb")
     def build_kb_endpoint(req: BuildKBRequest) -> dict[str, Any]:
-        """Workflow A: domain texts -> validated ontology + DATA/METHODS needs (a KBSpec)."""
+        """Workflow A: domain texts -> validated ontology + DATA/METHODS needs (a KBSpec).
+
+        Follows the professor's texts->LLM->ontology when LOKA_LLM_BUILD is set and a model is
+        configured (Claude or a self-hosted vLLM, via the model gateway); otherwise the
+        deterministic rule-based builder. The response's ``builder`` field says which ran.
+        """
+        import os
+        import uuid
+
         from loka_ontology import OntologyLoadError, build
+
+        from .world import world_from_kbspec
 
         if not req.texts:
             raise HTTPException(status_code=400, detail="no texts provided")
+
+        builder = None
+        builder_mode = "keyword"
+        if os.getenv("LOKA_LLM_BUILD", "").lower() in ("1", "true", "yes"):
+            try:
+                from loka_ontology import LLMBuilder
+                from loka_serving import llm_for, model_for
+
+                builder = LLMBuilder(
+                    client=llm_for("ontology_build"), model=model_for("ontology_build")
+                )
+                builder_mode = "llm"
+            except Exception:
+                builder, builder_mode = None, "keyword"  # fall back if LLM unavailable
+
         try:
-            spec = build(req.texts)
+            spec = build(req.texts, builder)
         except OntologyLoadError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        import uuid
-
-        from .world import world_from_kbspec
 
         kb_id = uuid.uuid4().hex[:12]
         app.state.kb_worlds[kb_id] = world_from_kbspec(spec)
         out: dict[str, Any] = jsonable_encoder(spec)
         out["kb_id"] = kb_id  # pass to /answer to query against this built KB
+        out["builder"] = builder_mode  # 'llm' (professor's way) or 'keyword' (rule-based)
         return out
 
     @app.post("/kb/{kb_id}/ingest")
