@@ -62,6 +62,22 @@ def test_ask_end_to_end_with_fake_llm(monkeypatch) -> None:
     assert body["controlled"]["identification"] == "observational"
 
 
+def test_ask_out_of_domain_says_dont_know(monkeypatch) -> None:
+    # Question the ontology can't support -> the LLM returns nulls -> system honestly says so.
+    import loka_serving
+
+    fake = _fake_client('{"country": null, "new_spending": null}')
+    monkeypatch.setattr(loka_serving, "llm_for", lambda purpose: fake)
+    monkeypatch.setattr(loka_serving, "model_for", lambda purpose: "m")
+
+    client = TestClient(create_app())
+    resp = client.post("/ask", json={"question": "Will Zambia's stock market rise tomorrow?"})
+    if resp.status_code == 500:  # panel absent in this env
+        return
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["answer"] == "don't know"
+
+
 def test_ask_without_llm_returns_503() -> None:
     # No LLM provider configured in the test env -> the endpoint fails cleanly, not a 500 crash.
     client = TestClient(create_app())

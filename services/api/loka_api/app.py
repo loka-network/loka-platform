@@ -90,31 +90,33 @@ def _load_health_panel() -> list[dict[str, Any]] | None:
 
 
 def _project_health(
-    panel: list[dict[str, Any]], iso: str, new_spending: float, mode: str
+    panel: list[dict[str, Any]], iso: str, new_spending: float, mode: str, spec: dict[str, Any]
 ) -> dict[str, Any]:
-    """Run the controlled-projection method for one country; shared by /project and /ask."""
+    """Run the controlled-projection method for one country, using the ontology-sourced spec."""
     from .projection import controlled_projection
 
+    outcome, dial, controls, log = spec["outcome"], spec["dial"], spec["controls"], spec["log_cols"]
     rows = [r for r in panel if r["iso3"] == iso]
     target = max(rows, key=lambda r: int(r["year"]))
     out: dict[str, Any] = {
         "country": target["country"],
         "iso3": iso,
         "year": target["year"],
-        "current_spending": float(target[_H_DIAL]),
-        "current_under5_mortality": float(target[_H_OUTCOME]),
+        "current_spending": float(target[dial]),
+        "current_under5_mortality": float(target[outcome]),
         "new_spending": new_spending,
         "panel_rows": len(panel),
+        "ontology_validated": spec.get("ontology_validated", False),
     }
     if mode in ("both", "controlled"):
         out["controlled"] = controlled_projection(
-            panel, outcome=_H_OUTCOME, dial=_H_DIAL, controls=_H_CONTROLS,
-            target=target, new_dial=new_spending, log_cols=_H_LOG,
+            panel, outcome=outcome, dial=dial, controls=controls,
+            target=target, new_dial=new_spending, log_cols=log,
         )
     if mode in ("both", "naive"):
         out["naive"] = controlled_projection(
-            panel, outcome=_H_OUTCOME, dial=_H_DIAL, controls=[],
-            target=target, new_dial=new_spending, log_cols=[_H_DIAL],
+            panel, outcome=outcome, dial=dial, controls=[],
+            target=target, new_dial=new_spending, log_cols=[dial],
         )
     return out
 
@@ -140,6 +142,16 @@ def create_app(world: World | None = None) -> FastAPI:
     app = FastAPI(title="Loka Platform API", version="0.0.1")
     app.state.world = world or build_world_from_env()
     app.state.kb_worlds = {}  # kb_id -> World, populated by /build-kb
+
+    # Load the health ontology Ω and validate the projection method against it, so the method's
+    # attributes are the ontology's attributes (the ontology is load-bearing, not decorative).
+    from .scenario import load_health_ontology, method_spec
+
+    app.state.health_engine = load_health_ontology()
+    try:
+        app.state.health_method = method_spec(app.state.health_engine)
+    except Exception:  # ontology inconsistent with the method -> fall back, mark unvalidated
+        app.state.health_method = method_spec(None)
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -226,6 +238,19 @@ def create_app(world: World | None = None) -> FastAPI:
             raise HTTPException(status_code=500, detail="health panel not found (set LOKA_HEALTH_PANEL)")
         return panel
 
+    @app.get("/scenario")
+    def scenario_endpoint() -> dict[str, Any]:
+        """Show the ontology Ω the scenario is bound to, and the ontology-validated method spec."""
+        eng = app.state.health_engine
+        attrs = (
+            {n: str(p.base_type) for n, p in eng.properties_of("Country").items()} if eng else {}
+        )
+        return {
+            "entity": "Country",
+            "attributes": attrs,
+            "method": app.state.health_method,  # includes ontology_validated: true/false
+        }
+
     @app.post("/project")
     def project_endpoint(req: ProjectRequest) -> dict[str, Any]:
         """Workflow B / KB.METHODS: project under-5 mortality if a country changes health spending."""
@@ -233,12 +258,16 @@ def create_app(world: World | None = None) -> FastAPI:
         iso = req.country.upper()
         if not any(r["iso3"] == iso for r in panel):
             raise HTTPException(status_code=404, detail=f"unknown country: {req.country}")
-        return _project_health(panel, iso, req.new_spending, req.mode)
+        return _project_health(panel, iso, req.new_spending, req.mode, app.state.health_method)
 
     @app.post("/ask")
     def ask_endpoint(req: AskRequest) -> dict[str, Any]:
-        """Full Workflow B: a natural-language question -> LLM extracts {country, new_spending}
-        -> the projection method runs. The 'formalized_query' field shows what the LLM extracted."""
+        """Full Workflow B: NL question -> LLM extracts {country, new_spending} -> project.
+
+        If the question can't be grounded to the ontology (unknown country / no spending level),
+        the system honestly answers "don't know" (Sifakis's informs(li,sp,"don't know")) rather
+        than guessing. This is the ontology doing its job: the system knows its own limits.
+        """
         from .nl_project import as_spending, extract_projection, resolve_country
 
         panel = _panel_or_500()
@@ -255,12 +284,15 @@ def create_app(world: World | None = None) -> FastAPI:
         iso = resolve_country(panel, proposal.get("country"))
         spending = as_spending(proposal.get("new_spending"))
         if iso is None or spending is None:
-            raise HTTPException(
-                status_code=422,
-                detail={"error": "could_not_ground_query", "formalized_query": proposal},
-            )
+            return {
+                "question": req.question,
+                "answer": "don't know",
+                "reason": "the question could not be grounded to the ontology "
+                "(unknown country, or no health-spending level given)",
+                "formalized_query": proposal,
+            }
 
-        result = _project_health(panel, iso, spending, req.mode)
+        result = _project_health(panel, iso, spending, req.mode, app.state.health_method)
         result["question"] = req.question
         result["formalized_query"] = {"country": iso, "new_spending": spending}
         return result
