@@ -139,9 +139,12 @@ class OntologyCompileRequest(BaseModel):
 
 
 def create_app(world: World | None = None) -> FastAPI:
+    from .speechact import KB
+
     app = FastAPI(title="Loka Platform API", version="0.0.1")
     app.state.world = world or build_world_from_env()
     app.state.kb_worlds = {}  # kb_id -> World, populated by /build-kb
+    app.state.kb = KB()  # slide-7 KB.DATA/KB.METHODS; grows as queries are answered (add P to KB)
 
     # Load the health ontology Ω and validate the projection method against it, so the method's
     # attributes are the ontology's attributes (the ontology is load-bearing, not decorative).
@@ -251,6 +254,22 @@ def create_app(world: World | None = None) -> FastAPI:
             "method": app.state.health_method,  # includes ontology_validated: true/false
         }
 
+    @app.get("/kb")
+    def kb_endpoint() -> dict[str, Any]:
+        """Show KB.DATA (facts, growing as queries are answered) and KB.METHODS (registered methods).
+
+        Demonstrates the professor's runtime rule: every ``informs(li,sp,P)`` adds P to KB.DATA,
+        so answered projections accumulate here (a queried KB is a growing KB).
+        """
+        kb = app.state.kb
+        return {
+            "data": kb.facts(),
+            "methods": [
+                {"name": m.name, "in_types": list(m.in_types), "out_type": m.out_type}
+                for m in kb.methods.values()
+            ],
+        }
+
     @app.post("/project")
     def project_endpoint(req: ProjectRequest) -> dict[str, Any]:
         """Workflow B / KB.METHODS: project under-5 mortality if a country changes health spending."""
@@ -281,20 +300,55 @@ def create_app(world: World | None = None) -> FastAPI:
                 detail=f"NL parsing needs an LLM (set OPENAI_*/ANTHROPIC_* + provider): {exc}",
             ) from exc
 
+        from .speechact import LISTENER, SPEAKER, Informs, Method, Orders, dispatch
+
         iso = resolve_country(panel, proposal.get("country"))
         spending = as_spending(proposal.get("new_spending"))
         if iso is None or spending is None:
+            # informs(li, sp, "don't know") — the query could not be formalized against Ω/KB.
+            dk = Informs(LISTENER, SPEAKER, "don't know")
             return {
                 "question": req.question,
                 "answer": "don't know",
                 "reason": "the question could not be grounded to the ontology "
                 "(unknown country, or no health-spending level given)",
                 "formalized_query": proposal,
+                "speech_act": {"act": "unformalizable", "query": None, "response": dk.render()},
             }
 
-        result = _project_health(panel, iso, spending, req.mode, app.state.health_method)
+        spec = app.state.health_method
+        outcome, dial = spec["outcome"], spec["dial"]
+
+        # KB.METHODS: register the projection method m once (m[in,out] under5_mortality).
+        kb = app.state.kb
+        if not kb.has_method("project_under5_mortality"):
+            def _m(iso: str, new_spending: float) -> dict[str, Any]:
+                res = _project_health(panel, iso, new_spending, "both", spec)
+                return {"value": res.get("controlled", {}).get("projected_outcome"), "detail": res}
+
+            kb.register_method(Method(
+                name="project_under5_mortality",
+                in_types=("Country", dial), out_type=outcome, fn=_m,
+            ))
+
+        # KB.DATA: seed the target country's current attributes (so asks(...) could retrieve them).
+        target = max((r for r in panel if r["iso3"] == iso), key=lambda r: int(r["year"]))
+        for attr in [outcome, dial, *spec["controls"]]:
+            if attr in target:
+                kb.add_fact(iso, attr, float(target[attr]))
+
+        # q = orders(sp, li, m[in,out] P(x, m(x))) — apply the method, informs back, add P to KB.
+        q = Orders(
+            SPEAKER, LISTENER, method="project_under5_mortality",
+            in_types=("Country", dial), out_type=outcome,
+            entity_id=iso, predicate=outcome, args={"iso": iso, "new_spending": spending},
+        )
+        informs = dispatch(q, kb)  # applies m, writes the projected P back into KB.DATA
+
+        result = informs.content["detail"] if isinstance(informs.content, dict) else {}
         result["question"] = req.question
         result["formalized_query"] = {"country": iso, "new_spending": spending}
+        result["speech_act"] = {"act": "orders", "query": q.render(), "response": informs.render()}
         return result
 
     @app.post("/kb/{kb_id}/ingest")

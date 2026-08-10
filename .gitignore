@@ -33,3 +33,4 @@ data/
 *.ckpt
 *.pt
 *.bin
+examples/aid_real_snapshot.json
