@@ -198,11 +198,45 @@ class LLMBuilder:
         )
 
 
+def analyze_facets(draft: OntologyDraft) -> dict[str, tuple[str, ...]]:
+    """The Ontology *Analysis* of slide 7 — decompose the draft into Sifakis's three facets.
+
+    Per slides 5 ("Factual Agent / Communicator / Institutor") and 8 (act taxonomy):
+
+      * **Factual** — the objective/interobjective world: entity types, their typed attributes,
+        relations, and factual verbs. This is the "what is" that KB.DATA stores.
+      * **Cognitive** — the reasoning/decision content: the methods (competencies) the agent can
+        apply, i.e. KB.METHODS. (Epistemic/deontic/intentional acts live here as they are added.)
+      * **Communication** — the communication acts the agent performs: ``informs / asks / orders``
+        (the speech acts realized in ``speechact.py``), plus any communicative verbs; institutional
+        verbs (declares/compels/authorizes) are surfaced here too.
+    """
+    factual: list[str] = []
+    for e in draft.entities:
+        factual.append(e.name)
+        factual.extend(f"{e.name}.{aname}" for aname, _ in e.attributes)
+    factual.extend(f"{s} -{v}-> {t}" for s, v, t in draft.relations)
+    factual.extend(f"verb:{n}" for n, c in draft.verbs if c == "factual")
+
+    cognitive = [f"method:{m}" for m in draft.method_needs]
+
+    communication = ["informs", "asks", "orders"]  # the acts speechact.py realizes
+    communication.extend(f"verb:{n}" for n, c in draft.verbs if c == "communicative")
+    communication.extend(f"institutional:{n}" for n, c in draft.verbs if c == "institutional")
+
+    return {
+        "factual": tuple(dict.fromkeys(factual)),
+        "cognitive": tuple(dict.fromkeys(cognitive)),
+        "communication": tuple(dict.fromkeys(communication)),
+    }
+
+
 def build(texts: Sequence[str], builder: OntologyBuilder | None = None) -> KBSpec:
     """Workflow A end-to-end: propose a draft, then compile + validate it into a KBSpec.
 
     Raises ``OntologyLoadError`` if the proposed ontology is inconsistent (the type system
     disposing of a bad proposal) — the caller sees a structured failure, never a silent bad KB.
+    The KBSpec carries the slide-7 Ontology Analysis in ``facets`` (factual/cognitive/communication).
     """
     builder = builder or KeywordBuilder()
     draft = builder.propose(texts)
@@ -212,7 +246,7 @@ def build(texts: Sequence[str], builder: OntologyBuilder | None = None) -> KBSpe
         ontology_yaml=yaml,
         data_needs=draft.data_needs,
         method_needs=draft.method_needs,
-        facets={k: tuple(v) for k, v in draft.facets.items()},
+        facets=analyze_facets(draft),  # the slide-7 three-facet Ontology Analysis
     )
 
 

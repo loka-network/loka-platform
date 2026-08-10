@@ -62,6 +62,25 @@ def test_ask_end_to_end_with_fake_llm(monkeypatch) -> None:
     assert body["controlled"]["identification"] == "observational"
 
 
+def test_ask_lookup_goes_through_asks_branch(monkeypatch) -> None:
+    # A current-value lookup -> asks(sp,li,?x:Country under5_mortality(x)) -> retrieve from KB.DATA.
+    import loka_serving
+
+    fake = _fake_client('{"country":"Zambia","new_spending":null,"attribute":"under5_mortality"}')
+    monkeypatch.setattr(loka_serving, "llm_for", lambda purpose: fake)
+    monkeypatch.setattr(loka_serving, "model_for", lambda purpose: "m")
+
+    client = TestClient(create_app())
+    resp = client.post("/ask", json={"question": "What is Zambia's current child mortality?"})
+    if resp.status_code == 500:  # panel absent in this env
+        return
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["speech_act"]["act"] == "asks"
+    assert body["speech_act"]["query"].startswith("asks(user, loka, ?x:Country under5_mortality")
+    assert isinstance(body["answer"], (int, float))  # a real retrieved value, not "don't know"
+
+
 def test_ask_out_of_domain_says_dont_know(monkeypatch) -> None:
     # Question the ontology can't support -> the LLM returns nulls -> system honestly says so.
     import loka_serving

@@ -38,6 +38,17 @@ def test_build_splits_data_and_method_needs() -> None:
     assert spec.facets["factual"] and spec.facets["cognitive"]
 
 
+def test_facets_are_the_slide7_three_facet_analysis() -> None:
+    # Ontology Analysis (slide 7): Factual = objective world, Cognitive = methods,
+    # Communication = the speech acts (informs/asks/orders) the agent performs.
+    spec = build([_TEXT], KeywordBuilder())
+    assert "GDP" in spec.facets["factual"]  # objective-world entities
+    assert any(f.startswith("verb:") for f in spec.facets["factual"])  # factual verbs
+    assert "method:causal_effect" in spec.facets["cognitive"]  # decision methods
+    # Communication facet is exactly the acts realized in speechact.py
+    assert set(spec.facets["communication"]) >= {"informs", "asks", "orders"}
+
+
 def _fake_client(payload: dict[str, object]) -> object:
     text = json.dumps(payload)
     create = lambda **_: SimpleNamespace(content=[SimpleNamespace(type="text", text=text)])  # noqa: E731

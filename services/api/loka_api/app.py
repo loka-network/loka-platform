@@ -287,40 +287,45 @@ def create_app(world: World | None = None) -> FastAPI:
         the system honestly answers "don't know" (Sifakis's informs(li,sp,"don't know")) rather
         than guessing. This is the ontology doing its job: the system knows its own limits.
         """
-        from .nl_project import as_spending, extract_projection, resolve_country
+        from .nl_project import as_spending, formalize_query, resolve_country
 
         panel = _panel_or_500()
         try:
             from loka_serving import llm_for, model_for
 
-            proposal = extract_projection(req.question, llm_for("projection"), model_for("projection"))
+            proposal = formalize_query(req.question, llm_for("projection"), model_for("projection"))
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(
                 status_code=503,
                 detail=f"NL parsing needs an LLM (set OPENAI_*/ANTHROPIC_* + provider): {exc}",
             ) from exc
 
-        from .speechact import LISTENER, SPEAKER, Informs, Method, Orders, dispatch
-
-        iso = resolve_country(panel, proposal.get("country"))
-        spending = as_spending(proposal.get("new_spending"))
-        if iso is None or spending is None:
-            # informs(li, sp, "don't know") — the query could not be formalized against Ω/KB.
-            dk = Informs(LISTENER, SPEAKER, "don't know")
-            return {
-                "question": req.question,
-                "answer": "don't know",
-                "reason": "the question could not be grounded to the ontology "
-                "(unknown country, or no health-spending level given)",
-                "formalized_query": proposal,
-                "speech_act": {"act": "unformalizable", "query": None, "response": dk.render()},
-            }
+        from .speechact import LISTENER, SPEAKER, Asks, Informs, Method, Orders, dispatch
 
         spec = app.state.health_method
         outcome, dial = spec["outcome"], spec["dial"]
+        valid_attrs = {outcome, dial, *spec["controls"]}  # the ontology-validated attributes
+        kb = app.state.kb
+
+        iso = resolve_country(panel, proposal.get("country"))
+        spending = as_spending(proposal.get("new_spending"))
+        attribute = proposal.get("attribute")
+
+        def _dont_know(reason: str) -> dict[str, Any]:
+            # informs(li, sp, "don't know") — the query could not be formalized against Ω/KB.
+            return {
+                "question": req.question,
+                "answer": "don't know",
+                "reason": reason,
+                "formalized_query": proposal,
+                "speech_act": {"act": "unformalizable", "query": None,
+                               "response": Informs(LISTENER, SPEAKER, "don't know").render()},
+            }
+
+        if iso is None:
+            return _dont_know("the question could not be grounded (unknown country)")
 
         # KB.METHODS: register the projection method m once (m[in,out] under5_mortality).
-        kb = app.state.kb
         if not kb.has_method("project_under5_mortality"):
             def _m(iso: str, new_spending: float) -> dict[str, Any]:
                 res = _project_health(panel, iso, new_spending, "both", spec)
@@ -331,11 +336,30 @@ def create_app(world: World | None = None) -> FastAPI:
                 in_types=("Country", dial), out_type=outcome, fn=_m,
             ))
 
-        # KB.DATA: seed the target country's current attributes (so asks(...) could retrieve them).
+        # KB.DATA: seed the target country's current attributes (so asks(...) retrieves real facts).
         target = max((r for r in panel if r["iso3"] == iso), key=lambda r: int(r["year"]))
-        for attr in [outcome, dial, *spec["controls"]]:
+        for attr in valid_attrs:
             if attr in target:
                 kb.add_fact(iso, attr, float(target[attr]))
+
+        # asks branch: a pure lookup of a current DATA attribute.
+        if proposal.get("intent") == "ask" and spending is None:
+            if attribute not in valid_attrs:
+                return _dont_know(f"'{attribute}' is not an attribute in the ontology Ω")
+            q_ask = Asks(SPEAKER, LISTENER, var_type="Country", entity_id=iso, predicate=attribute)
+            informs = dispatch(q_ask, kb)  # retrieve(d from KB.DATA)
+            content = informs.content if isinstance(informs.content, dict) else {}
+            return {
+                "question": req.question,
+                "answer": content.get("value", "don't know"),
+                "formalized_query": {"country": iso, "attribute": attribute},
+                "retrieved": content,
+                "speech_act": {"act": "asks", "query": q_ask.render(), "response": informs.render()},
+            }
+
+        # orders branch: change the dial, apply the projection method.
+        if spending is None:
+            return _dont_know("no health-spending level given to project, and no attribute to look up")
 
         # q = orders(sp, li, m[in,out] P(x, m(x))) — apply the method, informs back, add P to KB.
         q = Orders(
