@@ -31,6 +31,7 @@ from __future__ import annotations
 import argparse
 import csv
 import os
+import re
 from collections import defaultdict
 from datetime import datetime
 from typing import Any
@@ -64,13 +65,27 @@ def bulky_threshold(ontology_path: str) -> float:
 
     Taking it from Ω rather than restating it here is what keeps the subtype boundary and the
     action's eligibility rule the same rule: change the guard and the data reclassifies with it.
-    """
-    from loka_ontology import load_ontology_str
 
+    The platform's loader is used when it is importable, since it validates the ontology on the
+    way past. This script also has to run as a deployment step, before anything is installed, so
+    it falls back to reading the guard out of the file directly — the value still comes from Ω
+    either way, which is the part that matters.
+    """
     with open(ontology_path) as f:
-        onto = load_ontology_str(f.read())
-    action = next(a for a in onto.actions if a.name == "ShipStandard")
-    return float(action.guard.rsplit("<=", 1)[1])
+        text = f.read()
+    try:
+        from loka_ontology import load_ontology_str
+
+        action = next(a for a in load_ontology_str(text).actions if a.name == "ShipStandard")
+        guard = action.guard
+    except ImportError:
+        m = re.search(r"guard:\s*[\"']weight_g\s*<=\s*(-?\d+(?:\.\d+)?)[\"']", text)
+        if m is None:
+            raise SystemExit(
+                f"could not read the ShipStandard weight guard from {ontology_path}"
+            ) from None
+        return float(m.group(1))
+    return float(guard.rsplit("<=", 1)[1])
 
 
 def _num(value: str | None) -> float | None:
