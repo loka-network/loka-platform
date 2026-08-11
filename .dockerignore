@@ -1,0 +1,22 @@
+# Keep the build context to what the image actually needs.
+# Note: examples/supply_data IS included — the supply scenario reads those CSVs at runtime.
+
+.git/
+.github/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.DS_Store
+.vscode/
+.idea/
+
+# Source tables for the supply scenario: read once by build_supply_data.py to derive
+# examples/supply_data, never at runtime. Excluding them keeps ~44MB out of the image.
+examples/olist_raw/
