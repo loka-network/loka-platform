@@ -116,7 +116,7 @@ def test_checklist_flags_a_quantity_typed_as_string() -> None:
     assert "gdp_per_capita" in kinds["suspect_base_type"]["target"]
 
 
-def test_checklist_flags_missing_guards_and_default_cardinality() -> None:
+def test_checklist_flags_missing_guards_and_undeclared_link_details() -> None:
     yaml = (
         "version: v1\n"
         "entities:\n  - type: Country\n  - type: Region\n"
@@ -125,10 +125,32 @@ def test_checklist_flags_missing_guards_and_default_cardinality() -> None:
         "actions:\n  - {name: DoIt, verb: ACT, target: Country}\n"
     )
     kinds = {i["kind"] for i in review_checklist(yaml)}
-    assert "default_cardinality" in kinds   # many_to_many was never confirmed
-    assert "missing_guard" in kinds         # a precondition is a governance decision
+    assert "undeclared_cardinality" in kinds   # the ontology never stated one
+    assert "undeclared_link_field" in kinds    # no 'via': the relation cannot be traversed
+    assert "missing_guard" in kinds            # a precondition is a governance decision
     assert "missing_effect" in kinds
-    assert "assign_method_roles" in kinds   # outcome/dial/control is a modelling choice
+    assert "assign_method_roles" in kinds      # outcome/dial/control is a modelling choice
+
+
+def test_checklist_does_not_flag_a_declared_cardinality_or_a_subtype_name() -> None:
+    """Two false positives worth keeping out: a reviewer who learns to ignore the list is worse
+    off than one with no list."""
+    yaml = (
+        "version: v1\n"
+        "entities:\n"
+        "  - type: Product\n    properties:\n"
+        "      - {name: seller_id, type: string, description: 'link to Seller'}\n"
+        "  - type: BulkyProduct\n    subtype_of: Product\n"
+        "  - type: Seller\n    properties:\n"
+        "      - {name: seller_id, type: string, description: 'identity'}\n"
+        "relations:\n"
+        "  - {name: sold_by, from: Product, to: Seller, via: seller_id, "
+        "cardinality: many_to_many}\n"
+    )
+    kinds = {i["kind"] for i in review_checklist(yaml)}
+    assert "undeclared_cardinality" not in kinds  # many_to_many was stated, not defaulted
+    assert "undeclared_link_field" not in kinds   # via is declared
+    assert "possible_synonyms" not in kinds       # BulkyProduct ⪯ Product is not a duplicate
 
 
 def test_checklist_reports_an_ontology_that_does_not_load() -> None:

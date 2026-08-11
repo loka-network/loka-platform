@@ -76,7 +76,7 @@ def compile_wqt_from_ontology(
                     name=_slug(str(r.get("type", "")), "relates_to"),
                     from_type=src,
                     to_type=tgt,
-                    cardinality=Cardinality.MANY_TO_MANY,
+                    cardinality=None,  # the external format does not carry one
                 )
             )
 

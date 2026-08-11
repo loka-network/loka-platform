@@ -171,7 +171,7 @@ def to_yaml(ontology: Ontology) -> str:
                 "name": r.name,
                 "from": r.from_type,
                 "to": r.to_type,
-                "cardinality": r.cardinality.value,
+                "cardinality": r.effective_cardinality.value,
             }
             for r in ontology.relations
         ]

@@ -236,7 +236,7 @@ class OntologyEngine:
             return (f"unknown relation: {relation_name}",)
         pairs = set(links)  # dedupe: a repeated identical link is the same relationship
         errors: list[str] = []
-        card = rel.cardinality
+        card = rel.effective_cardinality
         if card in (Cardinality.ONE_TO_ONE, Cardinality.MANY_TO_ONE):
             # each source may point to at most one target
             for src, n in Counter(f for f, _ in pairs).items():

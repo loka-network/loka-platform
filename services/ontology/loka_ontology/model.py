@@ -89,8 +89,16 @@ class Relation:
     name: str
     from_type: str
     to_type: str
-    cardinality: Cardinality = Cardinality.MANY_TO_MANY
+    # ``None`` means the ontology did not state a cardinality — which is not the same as stating
+    # the unconstrained one. Review needs that difference: an unconfirmed link is a question,
+    # a declared many-to-many is an answer. Use ``effective_cardinality`` when enforcing.
+    cardinality: Cardinality | None = None
     via: str | None = None
+
+    @property
+    def effective_cardinality(self) -> Cardinality:
+        """The cardinality to enforce: the declared one, or unconstrained when none was given."""
+        return self.cardinality or Cardinality.MANY_TO_MANY
 
 
 @dataclass(frozen=True)

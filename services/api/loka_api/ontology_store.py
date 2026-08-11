@@ -108,12 +108,19 @@ def review_checklist(yaml_text: str) -> list[dict[str, Any]]:
                 )
 
     for rel in onto.relations:
-        if rel.cardinality == "many_to_many":
+        if rel.cardinality is None:  # undeclared, not "declared as unconstrained"
             add(
-                "default_cardinality",
+                "undeclared_cardinality",
                 rel.name,
-                f"{rel.from_type} -> {rel.to_type} left at many_to_many (the default); "
-                "confirm whether either side is single-valued",
+                f"{rel.from_type} -> {rel.to_type} states no cardinality; confirm whether "
+                "either side is single-valued (source text rarely says)",
+            )
+        if rel.via is None:
+            add(
+                "undeclared_link_field",
+                rel.name,
+                "no 'via' field: the relation says the types are related but not how to follow "
+                "the link, so no query can traverse it",
             )
 
     if not onto.constraints:
@@ -145,15 +152,31 @@ def review_checklist(yaml_text: str) -> list[dict[str, Any]]:
         "describes the world but does not assign causal roles",
     )
 
+    # Overlapping names can mean one concept extracted twice — but a subtype is *supposed* to
+    # carry its supertype's name (BulkyProduct ⪯ Product), so a declared ⪯ pair is not a finding.
+    def related_by_subtyping(a: str, b: str) -> bool:
+        chain_a, chain_b = {a}, {b}
+        cur: str | None = a
+        while cur is not None:
+            chain_a.add(cur)
+            cur = onto.entities[cur].subtype_of
+        cur = b
+        while cur is not None:
+            chain_b.add(cur)
+            cur = onto.entities[cur].subtype_of
+        return b in chain_a or a in chain_b
+
     names = sorted(onto.entities)
     for i, first in enumerate(names):
         for second in names[i + 1 :]:
+            if related_by_subtyping(first, second):
+                continue
             if first.lower() in second.lower() or second.lower() in first.lower():
                 add(
                     "possible_synonyms",
                     f"{first} / {second}",
-                    "names overlap; confirm these are distinct types and not one concept "
-                    "extracted twice",
+                    "names overlap and neither is a declared subtype of the other; confirm these "
+                    "are distinct types and not one concept extracted twice",
                 )
     return items
 
@@ -210,7 +233,9 @@ class OntologyStore:
 
         rec = self._records[ontology_id]
         if rec.state == PUBLISHED:
-            raise OntologyStateError(f"ontology {ontology_id} is already published as {rec.version}")
+            raise OntologyStateError(
+                f"ontology {ontology_id} is already published as {rec.version}"
+            )
         if rec.state != VALIDATED:
             raise OntologyStateError(
                 f"ontology {ontology_id} is {rec.state}; it must pass CΩ (PUT the reviewed YAML) "

@@ -73,9 +73,10 @@ def _parse(raw: dict[str, Any]) -> Ontology:
     for item in raw.get("relations", []) or []:
         raw_card = item.get("cardinality")
         try:
-            cardinality = (
-                Cardinality(raw_card) if raw_card is not None else Cardinality.MANY_TO_MANY
-            )
+            # Absent stays absent: "the ontology did not say" is distinct from "the ontology said
+            # unconstrained", and review needs to tell them apart. Enforcement reads
+            # ``effective_cardinality``, which resolves the absent case to many-to-many.
+            cardinality = Cardinality(raw_card) if raw_card is not None else None
         except ValueError as exc:
             raise OntologyLoadError(
                 f"relation {item['name']} has invalid cardinality: {raw_card}"
