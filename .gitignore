@@ -34,3 +34,8 @@ data/
 *.pt
 *.bin
 examples/aid_real_snapshot.json
+
+# Olist source tables and the per-entity CSVs derived from them (~74MB).
+# Reproduce with: python examples/build_supply_data.py --download
+examples/olist_raw/
+examples/supply_data/

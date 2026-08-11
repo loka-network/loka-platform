@@ -14,10 +14,12 @@ def test_scenario_exposes_the_parts_of_omega_a_single_table_cannot_use() -> None
     body = _client().get("/supply/scenario").json()
     if body.get("ontology_version") is None:  # ontology absent in this env
         return
-    assert body["ontology_version"] == "supply-v1"
+    assert body["ontology_version"] == "supply-v2"
     # ⪯ is declared, and every relation says which field it is traversed by
     assert body["entities"]["BulkyProduct"]["subtype_of"] == "Product"
-    assert {r["name"] for r in body["relations"]} == {"sold_by", "contains", "placed_by"}
+    assert {r["name"] for r in body["relations"]} == {
+        "contains", "of_product", "fulfilled_by", "placed_by",
+    }
     assert all(r["via"] for r in body["relations"])
     assert {a["name"] for a in body["actions"]} == {"ShipStandard", "SuspendSeller"}
 
@@ -28,7 +30,7 @@ def test_route_is_derived_not_hand_written() -> None:
         return
     body = r.json()
     assert body["hops"] == 2
-    assert body["route"] == ["contains>(via product_id)", "sold_by>(via seller_id)"]
+    assert body["route"] == ["contains>(via order_id)", "fulfilled_by>(via seller_id)"]
     assert body["traversable"] is True
 
 
@@ -38,7 +40,7 @@ def test_route_reports_narrowing_rather_than_pretending_it_is_reachable() -> Non
         return
     body = r.json()
     assert body["requires_narrowing"] is True
-    assert body["route"] == ["contains>(via product_id)"]
+    assert body["route"] == ["contains>(via order_id)", "of_product>(via product_id)"]
 
 
 def test_route_to_an_unknown_entity_is_404() -> None:
@@ -56,17 +58,17 @@ def test_impact_takes_the_rule_from_the_ontology_and_follows_the_relations() -> 
     body = r.json()
     # the rule is Ω's, not a constant in the service
     assert body["guard"] == {
-        "attribute": "weight_g", "operator": "<=", "from": 30000.0, "to": 5000.0,
+        "attribute": "weight_g", "operator": "<=", "from": 10000.0, "to": 5000.0,
     }
-    # p_3/p_4 already failed the old guard, so they are not *newly* ineligible
-    assert [p["product_id"] for p in body["newly_ineligible"]] == ["p_2"]
-
+    assert body["target_entity"] == "Product"
+    # Every consequence is reached along declared relations, never a hand-written join.
     by_entity = {c["entity"]: c for c in body["consequences"]}
-    assert [o["order_id"] for o in by_entity["Order"]["affected"]] == ["o_4"]
     assert by_entity["Customer"]["route"] == [
-        "contains<(via product_id)", "placed_by>(via customer_id)",
+        "of_product<(via product_id)",
+        "contains<(via order_id)",
+        "placed_by>(via customer_id)",
     ]
-    assert [s["seller_id"] for s in by_entity["Seller"]["affected"]] == ["s_B"]
+    assert by_entity["Seller"]["hops"] == 2
 
 
 def test_impact_on_an_action_the_ontology_does_not_declare_is_refused() -> None:

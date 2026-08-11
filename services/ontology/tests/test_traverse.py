@@ -24,18 +24,25 @@ _DATA: Dataset = {
         {"seller_id": "s_B", "seller_state": "RJ", "on_time_rate": 0.74},
     ],
     "Product": [
-        {"product_id": "p_1", "seller_id": "s_A", "weight_g": 1200},
-        {"product_id": "p_2", "seller_id": "s_B", "weight_g": 8000},
+        {"product_id": "p_1", "weight_g": 1200},
+        {"product_id": "p_2", "weight_g": 8000},
     ],
     "BulkyProduct": [
-        {"product_id": "p_3", "seller_id": "s_A", "weight_g": 45000},
-        {"product_id": "p_4", "seller_id": "s_B", "weight_g": 32000},
+        {"product_id": "p_3", "weight_g": 45000},
+        {"product_id": "p_4", "weight_g": 32000},
+    ],
+    # The junction: the seller is a property of the order line, not of the product.
+    "OrderItem": [
+        {"item_id": "i_1", "order_id": "o_1", "product_id": "p_1", "seller_id": "s_A"},
+        {"item_id": "i_2", "order_id": "o_2", "product_id": "p_3", "seller_id": "s_A"},
+        {"item_id": "i_3", "order_id": "o_3", "product_id": "p_4", "seller_id": "s_B"},
+        {"item_id": "i_4", "order_id": "o_4", "product_id": "p_2", "seller_id": "s_B"},
     ],
     "Order": [
-        {"order_id": "o_1", "product_id": "p_1", "customer_id": "c_X", "days_late": -2.0},
-        {"order_id": "o_2", "product_id": "p_3", "customer_id": "c_Y", "days_late": 6.0},
-        {"order_id": "o_3", "product_id": "p_4", "customer_id": "c_Z", "days_late": 11.0},
-        {"order_id": "o_4", "product_id": "p_2", "customer_id": "c_X", "days_late": 1.0},
+        {"order_id": "o_1", "customer_id": "c_X", "days_late": -2.0},
+        {"order_id": "o_2", "customer_id": "c_Y", "days_late": 6.0},
+        {"order_id": "o_3", "customer_id": "c_Z", "days_late": 11.0},
+        {"order_id": "o_4", "customer_id": "c_X", "days_late": 1.0},
     ],
     "Customer": [
         {"customer_id": "c_X", "customer_state": "RJ"},
@@ -58,7 +65,7 @@ def test_two_hops_answer_a_question_no_single_row_contains(engine: OntologyEngin
     o2 = [r for r in _DATA["Order"] if r["order_id"] == "o_2"]
     out = reach(engine, _DATA, from_type="Order", to_type="Seller", start=o2)
     assert out["hops"] == 2
-    assert out["route"] == ["contains>(via product_id)", "sold_by>(via seller_id)"]
+    assert out["route"] == ["contains>(via order_id)", "fulfilled_by>(via seller_id)"]
     assert [r["seller_id"] for r in out["rows"]] == ["s_A"]
 
 
@@ -72,7 +79,7 @@ def test_impact_range_walks_the_relations_backwards(engine: OntologyEngine) -> N
 
     customers = reach(engine, _DATA, from_type="Product", to_type="Customer", start=over)
     assert {r["customer_id"] for r in customers["rows"]} == {"c_X", "c_Y", "c_Z"}
-    assert customers["hops"] == 2
+    assert customers["hops"] == 3  # Product <- OrderItem <- Order -> Customer
 
     sellers = reach(engine, _DATA, from_type="Product", to_type="Seller", start=over)
     assert {r["seller_id"] for r in sellers["rows"]} == {"s_A", "s_B"}

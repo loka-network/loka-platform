@@ -31,28 +31,33 @@ def _names(path: Sequence[tuple[Relation, bool]]) -> list[str]:
     return [f"{rel.name}{'>' if fwd else '<'}" for rel, fwd in path]
 
 
-def test_a_two_hop_route_is_derived_from_the_declared_relations(engine: OntologyEngine) -> None:
-    # "Which seller shipped this order?" — the answer is in no single record.
+def test_a_multi_hop_route_is_derived_from_the_declared_relations(engine: OntologyEngine) -> None:
+    # "Which seller shipped this order?" — no single record holds the answer; the route runs
+    # through the junction entity, which is why it is two hops rather than a direct link.
     path = engine.path_between("Order", "Seller")
     assert path is not None
-    assert _names(path) == ["contains>", "sold_by>"]
+    assert _names(path) == ["contains>", "fulfilled_by>"]
 
 
 def test_relations_are_walked_backwards_for_impact_range(engine: OntologyEngine) -> None:
     # "Tighten the weight spec — which orders are affected?" walks the same relations in reverse.
-    assert _names(engine.path_between("BulkyProduct", "Order") or []) == ["contains<"]
+    assert _names(engine.path_between("BulkyProduct", "Order") or []) == [
+        "of_product<", "contains<",
+    ]
     assert _names(engine.path_between("BulkyProduct", "Customer") or []) == [
-        "contains<", "placed_by>",
+        "of_product<", "contains<", "placed_by>",
     ]
 
 
 def test_a_subtype_uses_its_supertype_relations(engine: OntologyEngine) -> None:
     # BulkyProduct declares no relations of its own; ⪯ gives it Product's.
-    assert _names(engine.path_between("BulkyProduct", "Seller") or []) == ["sold_by>"]
+    assert _names(engine.path_between("BulkyProduct", "Seller") or []) == [
+        "of_product<", "fulfilled_by>",
+    ]
 
 
 def test_the_shortest_route_is_returned(engine: OntologyEngine) -> None:
-    assert _names(engine.path_between("Product", "Seller") or []) == ["sold_by>"]
+    assert _names(engine.path_between("OrderItem", "Seller") or []) == ["fulfilled_by>"]
     assert len(engine.path_between("Customer", "Seller") or []) == 3
 
 
@@ -70,7 +75,7 @@ def test_reaching_a_subtype_requires_narrowing_and_is_reported_as_such(
     assert engine.path_between("Order", "BulkyProduct") is None
     assert engine.needs_narrowing("Order", "BulkyProduct") is True
     widened = engine.path_between("Order", "BulkyProduct", allow_narrowing=True)
-    assert _names(widened or []) == ["contains>"]
+    assert _names(widened or []) == ["contains>", "of_product>"]
 
 
 def test_a_genuinely_unrelated_pair_is_unreachable(engine: OntologyEngine) -> None:

@@ -1,54 +1,67 @@
-# supply-v1 — a relational ontology, exercising the parts of Ω a single-table domain cannot.
+# supply-v2 — a relational ontology, exercising the parts of Ω a single-table domain cannot.
 #
-# health-v1 declares one entity and no relations, so R, ⪯ and C sit unused. Here all six of
+# health-v1 declares one entity and no relations, so R, ⪯ and C sit unused. Here all six parts of
 # Ω = (E, A, R, ⪯, C, Actions) carry weight:
-#   R  — three relations, each declaring the field it is traversed by (``via``)
+#   R  — four relations, each declaring the field it is traversed by (`via`)
 #   ⪯  — BulkyProduct ⪯ Product, which decides whether an action is even applicable
 #   C  — typing constraints on which entity types a verb may act on
 #   Actions — guards that make eligibility a property of the ontology, not of application code
-version: supply-v1
+#
+# OrderItem is a real entity, not a convenience: in the source data an order can hold several
+# items (about 10% do) and one product may be sold by several sellers (about 4% are), so the
+# seller belongs to the order line rather than to the product. Modelling the junction keeps the
+# declared cardinalities true of the data, and makes Order -> Seller a genuine three-hop route.
+version: supply-v2
 
 entities:
   - type: Seller
     properties:
       - {name: seller_id,    type: string, required: true, description: "identity key"}
-      - {name: seller_state, type: string, description: "two-letter state code of the seller"}
-      - {name: on_time_rate, type: double, description: "share of this seller's orders delivered by the promised date, 0-1"}
+      - {name: seller_state, type: string, description: "two-letter Brazilian state code"}
+      - {name: on_time_rate, type: double, description: "share of this seller's delivered orders that arrived by the promised date, 0-1"}
 
   - type: Product
     properties:
       - {name: product_id,  type: string, required: true, description: "identity key"}
-      - {name: seller_id,   type: string, description: "link to Seller (traversed by relation sold_by)"}
       - {name: weight_g,    type: double, description: "shipping weight in grams"}
-      - {name: volume_cm3,  type: double, description: "shipping volume in cubic centimetres"}
+      - {name: volume_cm3,  type: double, description: "length x height x width, in cubic centimetres"}
       - {name: category,    type: string, description: "product category label"}
 
-  # A subtype whose only job is to change what is permitted: an over-spec item cannot be
-  # shipped by the standard service. Eligibility follows from ⪯ plus the action's guard.
+  # A subtype whose only job is to change what is permitted: an over-spec item cannot ship on the
+  # standard service. Eligibility follows from ⪯ plus the action's guard, not from code.
   - type: BulkyProduct
     subtype_of: Product
     properties:
-      - {name: weight_g, type: double, description: "shipping weight in grams; above the standard-service limit"}
+      - {name: weight_g, type: double, description: "shipping weight in grams; above the standard-service limit declared by the ShipStandard guard"}
+
+  - type: OrderItem
+    properties:
+      - {name: item_id,       type: string, required: true, description: "identity key (order_id + line number)"}
+      - {name: order_id,      type: string, description: "link to Order (traversed by relation contains)"}
+      - {name: product_id,    type: string, description: "link to Product (traversed by relation of_product)"}
+      - {name: seller_id,     type: string, description: "link to Seller (traversed by relation fulfilled_by)"}
+      - {name: freight_value, type: double, description: "freight charged on this line, in BRL"}
+      - {name: price,         type: double, description: "item price, in BRL"}
 
   - type: Order
     properties:
-      - {name: order_id,      type: string, required: true, description: "identity key"}
-      - {name: product_id,    type: string, description: "link to Product (traversed by relation contains)"}
-      - {name: customer_id,   type: string, description: "link to Customer (traversed by relation placed_by)"}
-      - {name: days_late,     type: double, description: "delivered date minus promised date, in days; negative is early"}
-      - {name: freight_value, type: double, description: "freight charged, in BRL"}
+      - {name: order_id,    type: string, required: true, description: "identity key"}
+      - {name: customer_id, type: string, description: "link to Customer (traversed by relation placed_by)"}
+      - {name: days_late,   type: double, description: "delivered date minus promised date, in days; negative is early"}
+      - {name: status,      type: string, description: "order status as recorded by the marketplace"}
 
   - type: Customer
     properties:
       - {name: customer_id,    type: string, required: true, description: "identity key"}
-      - {name: customer_state, type: string, description: "two-letter state code of the customer"}
+      - {name: customer_state, type: string, description: "two-letter Brazilian state code"}
 
-# Each relation declares the field it is walked by, so a derived path is traversable without
-# any naming convention in application code.
+# Each relation declares the field it is walked by, so a derived route is traversable without any
+# naming convention in application code.
 relations:
-  - {name: sold_by,   from: Product, to: Seller,   via: seller_id,   cardinality: many_to_one}
-  - {name: contains,  from: Order,   to: Product,  via: product_id,  cardinality: many_to_one}
-  - {name: placed_by, from: Order,   to: Customer, via: customer_id, cardinality: many_to_one}
+  - {name: contains,     from: Order,     to: OrderItem, via: order_id,    cardinality: one_to_many}
+  - {name: of_product,   from: OrderItem, to: Product,   via: product_id,  cardinality: many_to_one}
+  - {name: fulfilled_by, from: OrderItem, to: Seller,    via: seller_id,   cardinality: many_to_one}
+  - {name: placed_by,    from: Order,     to: Customer,  via: customer_id, cardinality: many_to_one}
 
 verbs:
   - {name: SHIP_STANDARD,  class: factual}
@@ -64,7 +77,7 @@ actions:
   - name: ShipStandard
     verb: SHIP_STANDARD
     target: Product
-    guard: "weight_g <= 30000"
+    guard: "weight_g <= 10000"
     effect: "the product is dispatched on the standard service"
 
   - name: SuspendSeller
