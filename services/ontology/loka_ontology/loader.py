@@ -173,6 +173,7 @@ def _validate_references(onto: Ontology) -> None:
         if a.target not in onto.entities:
             raise OntologyLoadError(f"action {a.name} references undefined target {a.target}")
     _check_no_cycles(onto)
+    _check_override_compatibility(onto)
 
 
 def _check_no_cycles(onto: Ontology) -> None:
@@ -185,3 +186,50 @@ def _check_no_cycles(onto: Ontology) -> None:
                 raise OntologyLoadError(f"subtype chain contains a cycle involving {cur}")
             seen.add(cur)
             cur = onto.entities[cur].subtype_of
+
+
+# Which base types a subtype may narrow an inherited property to. Identity is always allowed;
+# these are the additional widening→narrowing pairs that preserve substitutability (every
+# INTEGER is a valid DOUBLE; every DATE is a valid TIMESTAMP), so a value of the subtype's
+# type is still a legal value of the supertype's type.
+_NARROWABLE_TO: dict[BaseType, frozenset[BaseType]] = {
+    BaseType.DOUBLE: frozenset({BaseType.INTEGER}),
+    BaseType.TIMESTAMP: frozenset({BaseType.DATE}),
+}
+
+
+def _check_override_compatibility(onto: Ontology) -> None:
+    """A subtype redeclaring an inherited property must not break substitutability (⪯ soundness).
+
+    If ``Sub ⪯ Super`` and both declare property ``p``, then a ``Sub`` must remain usable wherever
+    a ``Super`` is expected. That fails if the override changes ``p`` to an unrelated type (e.g.
+    ``double`` -> ``string``), or relaxes a required property to optional. Widening the type
+    (``integer`` -> ``double``) also fails: the subtype would admit values the supertype forbids.
+    Only an identical type or a sound narrowing is accepted.
+    """
+    for ent in onto.entities.values():
+        own = {p.name: p for p in ent.properties}
+        if not own:
+            continue
+        ancestor = ent.subtype_of
+        while ancestor is not None:
+            parent = onto.entities[ancestor]
+            for p in parent.properties:
+                sub_prop = own.get(p.name)
+                if sub_prop is None:
+                    continue
+                allowed = _NARROWABLE_TO.get(p.base_type, frozenset())
+                if sub_prop.base_type != p.base_type and sub_prop.base_type not in allowed:
+                    raise OntologyLoadError(
+                        f"entity {ent.name} overrides inherited property {p.name} with type "
+                        f"{sub_prop.base_type} but {parent.name} declares it as {p.base_type}; "
+                        f"a subtype may only repeat the type or narrow it "
+                        f"(substitutability of {ent.name} for {parent.name} would break)"
+                    )
+                if p.required and not sub_prop.required:
+                    raise OntologyLoadError(
+                        f"entity {ent.name} overrides inherited property {p.name} as optional but "
+                        f"{parent.name} declares it required; a subtype may not relax a "
+                        f"requirement of its supertype"
+                    )
+            ancestor = parent.subtype_of
