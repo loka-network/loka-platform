@@ -112,11 +112,13 @@ def _project_health(
         out["controlled"] = controlled_projection(
             panel, outcome=outcome, dial=dial, controls=controls,
             target=target, new_dial=new_spending, log_cols=log,
+            clamp_min=0.0,  # under-5 mortality cannot be negative
         )
     if mode in ("both", "naive"):
         out["naive"] = controlled_projection(
             panel, outcome=outcome, dial=dial, controls=[],
             target=target, new_dial=new_spending, log_cols=[dial],
+            clamp_min=0.0,
         )
     return out
 

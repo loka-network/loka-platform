@@ -53,9 +53,15 @@ def controlled_projection(
     target: Mapping[str, Any],
     new_dial: float,
     log_cols: Sequence[str] = (),
-    clamp_min: float | None = 0.0,
+    clamp_min: float | None = None,
 ) -> dict[str, Any]:
-    """Project ``outcome`` for ``target`` when ``dial`` -> ``new_dial``, controls held fixed."""
+    """Project ``outcome`` for ``target`` when ``dial`` -> ``new_dial``, controls held fixed.
+
+    ``clamp_min`` floors the projection and its interval. It defaults to no clamping, because
+    whether an outcome can go negative is a property of the domain, not of the method: under-5
+    mortality cannot, delivery lateness can (an early delivery is negative). The caller that knows
+    the outcome passes the bound.
+    """
     log = set(log_cols)
     cols = [dial, *controls]
 

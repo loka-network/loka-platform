@@ -44,6 +44,30 @@ def evaluate_scenarios(projection: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
+# Below this share of explained variation, a determined direction is reported together with the
+# fact that the model explains little. The value is a judgement, so it is published in the memo
+# rather than applied silently — a reader who disagrees can see what was applied.
+WEAK_FIT_R2 = 0.10
+
+
+def _explanatory_power(projection: dict[str, Any]) -> dict[str, Any]:
+    """How much of the outcome the fitted model accounts for.
+
+    An interval says whether an effect can be told apart from zero; it says nothing about whether
+    the relationship matters for any individual case. Those are different failures — one is "we
+    cannot tell", the other is "we can tell, and it accounts for almost nothing" — and a report
+    carrying only a point estimate and an interval makes them look alike.
+    """
+    fit = projection.get("fit", {})
+    r2 = fit.get("r2")
+    return {
+        "r2": r2,
+        "n": fit.get("n"),
+        "weak_fit_threshold": WEAK_FIT_R2,
+        "explains_little": isinstance(r2, (int, float)) and r2 < WEAK_FIT_R2,
+    }
+
+
 def _audit_inputs(
     projection: dict[str, Any], *, iso: str, ontology_version: str, method_name: str
 ) -> dict[str, Any]:
@@ -119,6 +143,8 @@ def select_and_decide(
     )
     audit = hashlib.sha256(_audit_preimage(audit_inputs).encode()).hexdigest()[:16]
 
+    power = _explanatory_power(projection)
+
     if not significant:
         rec = (
             f"No effect distinguishable from zero: raising {projection['dial']} to {new_dial} "
@@ -134,11 +160,21 @@ def select_and_decide(
             f"{current} -> {projected} ({'−' if improves else '+'}{abs(delta)}, "
             f"95% CI {projection.get('effect_interval_95')})."
         )
+        if power["explains_little"]:
+            # A precise estimate of a relationship that accounts for little of what is observed
+            # is a different situation from an imprecise one, and must not read the same.
+            rec += (
+                f" The direction is determined, but the fitted model accounts for "
+                f"{power['r2'] * 100:.1f}% of the variation in {projection['outcome']} "
+                f"(r²={power['r2']}, n={power['n']}): the estimate is precise about a "
+                f"relationship that explains little of any individual case."
+            )
     return {
         "recommendation": rec,
         "effect": delta,
         "effect_interval_95": projection.get("effect_interval_95"),
         "effect_distinguishable_from_zero": significant,
+        "explanatory_power": power,
         "welfare_objective": f"minimize {projection['outcome']}",
         "chosen_scenario": chosen["scenario_id"],
         "contingency_scenario": "adverse",

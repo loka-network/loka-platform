@@ -63,6 +63,30 @@ def test_scenarios_use_the_effect_interval_not_the_level_interval() -> None:
     assert kinds["adverse"] != 82.9    # not the level prediction interval
 
 
+def test_a_determined_direction_over_a_weak_fit_reads_differently() -> None:
+    """Two failures must not read alike: "cannot tell" and "can tell, and it explains little"."""
+    weak = {**_PROJ, "fit": {"n": 96454, "params": 4, "r2": 0.013, "sample_digest": "d"}}
+    d = slide6_right_half(weak, iso="ZMB", ontology_version="health-v1",
+                          guard="g", method_name="m")["decision"]
+    assert d["effect_distinguishable_from_zero"] is True     # the direction is determined
+    assert d["explanatory_power"]["explains_little"] is True  # but it accounts for little
+    assert "explains little of any individual case" in d["recommendation"]
+
+
+def test_a_strong_fit_carries_no_weak_fit_qualifier() -> None:
+    d = slide6_right_half(_PROJ, iso="ZMB", ontology_version="health-v1",
+                          guard="g", method_name="m")["decision"]
+    assert d["explanatory_power"]["r2"] == 0.809
+    assert d["explanatory_power"]["explains_little"] is False
+    assert "explains little" not in d["recommendation"]
+
+
+def test_the_weak_fit_threshold_is_published_not_applied_silently() -> None:
+    d = slide6_right_half(_PROJ, iso="ZMB", ontology_version="health-v1",
+                          guard="g", method_name="m")["decision"]
+    assert d["explanatory_power"]["weak_fit_threshold"] == 0.10  # a reader can disagree with it
+
+
 def test_audit_hash_is_deterministic_for_replay() -> None:
     a = slide6_right_half(_PROJ, iso="ZMB", ontology_version="health-v1",
                           guard="g", method_name="m")["decision"]["audit_manifest"]
