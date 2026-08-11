@@ -77,12 +77,20 @@ class Cardinality(StrEnum):
 
 @dataclass(frozen=True)
 class Relation:
-    """R: a directed relation between entity types, e.g. regulator-of(Regulator → Instrument)."""
+    """R: a directed relation between entity types, e.g. regulator-of(Regulator → Instrument).
+
+    ``via`` names the field on the ``from_type`` that carries the link — how the relation is
+    actually traversed in data. Declaring it in Ω rather than inferring it from a naming
+    convention keeps the whole traversal ontology-authorized: a multi-hop path is derived from
+    the declared relations *and* walked with the declared keys, so changing the ontology changes
+    both. A relation without ``via`` is a type-level statement that cannot be traversed.
+    """
 
     name: str
     from_type: str
     to_type: str
     cardinality: Cardinality = Cardinality.MANY_TO_MANY
+    via: str | None = None
 
 
 @dataclass(frozen=True)

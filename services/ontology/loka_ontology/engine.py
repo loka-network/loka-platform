@@ -150,6 +150,79 @@ class OntologyEngine:
     def relation(self, name: str) -> Relation | None:
         return next((r for r in self._onto.relations if r.name == name), None)
 
+    def path_between(
+        self, from_type: str, to_type: str, *, max_hops: int = 4, allow_narrowing: bool = False
+    ) -> list[tuple[Relation, bool]] | None:
+        """The shortest relation path from ``from_type`` to ``to_type``, or None if unreachable.
+
+        Each step is ``(relation, forward)``: ``forward`` is True when the path walks the relation
+        in its declared direction (from_type → to_type) and False when it walks it backwards. Both
+        directions matter — "which seller sold this order" walks forward, "which orders does this
+        seller appear in" walks the same relations backwards.
+
+        This is what makes a multi-hop question answerable without anyone hand-writing the join:
+        the route is derived from Ω's declared relations, so changing the ontology changes the
+        route. ⪯ is respected at every step (a subtype may use its supertype's relations).
+
+        Arriving at a *subtype* of the target always reaches it — every BulkyProduct is a Product.
+        Arriving at a *supertype* does not: an Order reaches Product, but whether that product is
+        a BulkyProduct is a runtime narrowing the type system cannot guarantee. Such a path is
+        withheld unless ``allow_narrowing`` is set, in which case the caller takes on the check.
+
+        Breadth-first, so the returned path is the shortest; ``max_hops`` bounds the search.
+        """
+        if not self.has_entity(from_type) or not self.has_entity(to_type):
+            return None
+        if from_type == to_type:
+            return []
+
+        def reached(landed: str) -> bool:
+            if landed == to_type or self.is_subtype(landed, to_type):
+                return True  # landed on the target or a subtype of it — guaranteed
+            return allow_narrowing and self.is_subtype(to_type, landed)  # supertype: needs a check
+
+        queue: list[tuple[str, list[tuple[Relation, bool]]]] = [(from_type, [])]
+        seen = {from_type}
+        while queue:
+            current, path = queue.pop(0)
+            if len(path) >= max_hops:
+                continue
+            steps: list[tuple[Relation, bool, str]] = [
+                (r, True, r.to_type) for r in self.relations_from(current)
+            ] + [(r, False, r.from_type) for r in self.relations_to(current)]
+            for rel, forward, nxt in steps:
+                if nxt in seen:
+                    continue
+                extended = [*path, (rel, forward)]
+                if reached(nxt):
+                    return extended
+                seen.add(nxt)
+                queue.append((nxt, extended))
+        return None
+
+    def needs_narrowing(self, from_type: str, to_type: str, *, max_hops: int = 4) -> bool:
+        """True when the target is reachable only by narrowing to a subtype at the last step.
+
+        Distinguishes "Ω models no route at all" from "Ω routes you to the supertype, and whether
+        the value is of the subtype is a data question" — the difference between an unanswerable
+        query and one that needs a runtime type check.
+        """
+        if self.path_between(from_type, to_type, max_hops=max_hops) is not None:
+            return False
+        widened = self.path_between(
+            from_type, to_type, max_hops=max_hops, allow_narrowing=True
+        )
+        return widened is not None
+
+    def traversable(self, from_type: str, to_type: str, *, max_hops: int = 4) -> bool:
+        """Whether a path exists *and* every step declares the key it is walked by (``via``).
+
+        A path whose relations omit ``via`` is a type-level statement only: Ω says the types are
+        related but not how to follow the link in data, so it cannot be traversed.
+        """
+        path = self.path_between(from_type, to_type, max_hops=max_hops)
+        return path is not None and all(rel.via for rel, _ in path)
+
     def validate_links(
         self, relation_name: str, links: Iterable[tuple[str, str]]
     ) -> tuple[str, ...]:

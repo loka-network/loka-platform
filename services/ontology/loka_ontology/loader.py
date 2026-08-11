@@ -86,6 +86,7 @@ def _parse(raw: dict[str, Any]) -> Ontology:
                 from_type=item["from"],
                 to_type=item["to"],
                 cardinality=cardinality,
+                via=item.get("via"),
             )
         )
 

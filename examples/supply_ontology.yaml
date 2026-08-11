@@ -1,0 +1,74 @@
+# supply-v1 — a relational ontology, exercising the parts of Ω a single-table domain cannot.
+#
+# health-v1 declares one entity and no relations, so R, ⪯ and C sit unused. Here all six of
+# Ω = (E, A, R, ⪯, C, Actions) carry weight:
+#   R  — three relations, each declaring the field it is traversed by (``via``)
+#   ⪯  — BulkyProduct ⪯ Product, which decides whether an action is even applicable
+#   C  — typing constraints on which entity types a verb may act on
+#   Actions — guards that make eligibility a property of the ontology, not of application code
+version: supply-v1
+
+entities:
+  - type: Seller
+    properties:
+      - {name: seller_id,    type: string, required: true, description: "identity key"}
+      - {name: seller_state, type: string, description: "two-letter state code of the seller"}
+      - {name: on_time_rate, type: double, description: "share of this seller's orders delivered by the promised date, 0-1"}
+
+  - type: Product
+    properties:
+      - {name: product_id,  type: string, required: true, description: "identity key"}
+      - {name: seller_id,   type: string, description: "link to Seller (traversed by relation sold_by)"}
+      - {name: weight_g,    type: double, description: "shipping weight in grams"}
+      - {name: volume_cm3,  type: double, description: "shipping volume in cubic centimetres"}
+      - {name: category,    type: string, description: "product category label"}
+
+  # A subtype whose only job is to change what is permitted: an over-spec item cannot be
+  # shipped by the standard service. Eligibility follows from ⪯ plus the action's guard.
+  - type: BulkyProduct
+    subtype_of: Product
+    properties:
+      - {name: weight_g, type: double, description: "shipping weight in grams; above the standard-service limit"}
+
+  - type: Order
+    properties:
+      - {name: order_id,      type: string, required: true, description: "identity key"}
+      - {name: product_id,    type: string, description: "link to Product (traversed by relation contains)"}
+      - {name: customer_id,   type: string, description: "link to Customer (traversed by relation placed_by)"}
+      - {name: days_late,     type: double, description: "delivered date minus promised date, in days; negative is early"}
+      - {name: freight_value, type: double, description: "freight charged, in BRL"}
+
+  - type: Customer
+    properties:
+      - {name: customer_id,    type: string, required: true, description: "identity key"}
+      - {name: customer_state, type: string, description: "two-letter state code of the customer"}
+
+# Each relation declares the field it is walked by, so a derived path is traversable without
+# any naming convention in application code.
+relations:
+  - {name: sold_by,   from: Product, to: Seller,   via: seller_id,   cardinality: many_to_one}
+  - {name: contains,  from: Order,   to: Product,  via: product_id,  cardinality: many_to_one}
+  - {name: placed_by, from: Order,   to: Customer, via: customer_id, cardinality: many_to_one}
+
+verbs:
+  - {name: SHIP_STANDARD,  class: factual}
+  - {name: NOTIFY_DELAY,   class: communicative}
+  - {name: SUSPEND_SELLER, class: institutional}
+
+# C: which entity types a verb may act on at all.
+constraints:
+  - {verb: SHIP_STANDARD,  agent_must_be: Seller, target_must_be: [Product]}
+  - {verb: SUSPEND_SELLER, agent_must_be: Seller, target_must_be: [Seller]}
+
+actions:
+  - name: ShipStandard
+    verb: SHIP_STANDARD
+    target: Product
+    guard: "weight_g <= 30000"
+    effect: "the product is dispatched on the standard service"
+
+  - name: SuspendSeller
+    verb: SUSPEND_SELLER
+    target: Seller
+    guard: "on_time_rate < 0.8"
+    effect: "the seller is suspended from the marketplace pending review"
