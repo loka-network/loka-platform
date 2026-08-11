@@ -175,6 +175,34 @@ def _validate_references(onto: Ontology) -> None:
             raise OntologyLoadError(f"action {a.name} references undefined target {a.target}")
     _check_no_cycles(onto)
     _check_override_compatibility(onto)
+    _check_relation_keys(onto)
+
+
+def _check_relation_keys(onto: Ontology) -> None:
+    """A relation's ``via`` field must be declared on both types it connects (CΩ R8).
+
+    ``via`` names the field the link is carried by, and a link is followed by matching that field
+    on both sides. If either side does not declare it, a path through this relation is computable
+    but not followable — the ontology would promise a route it cannot walk. Checking it at load
+    time means a traversal derived from Ω is guaranteed to have the fields it needs.
+    """
+    def effective(entity: str) -> set[str]:
+        names: set[str] = set()
+        cur: str | None = entity
+        while cur is not None:
+            names.update(p.name for p in onto.entities[cur].properties)
+            cur = onto.entities[cur].subtype_of
+        return names
+
+    for rel in onto.relations:
+        if rel.via is None:
+            continue  # a type-level relation; declared as not traversable
+        for side in (rel.from_type, rel.to_type):
+            if rel.via not in effective(side):
+                raise OntologyLoadError(
+                    f"relation {rel.name} is traversed via '{rel.via}', but {side} does not "
+                    f"declare that property; a link field must exist on both types it connects"
+                )
 
 
 def _check_no_cycles(onto: Ontology) -> None:
