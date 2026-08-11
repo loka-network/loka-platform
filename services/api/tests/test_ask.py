@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from fastapi.testclient import TestClient
 from loka_api.app import create_app
 from loka_api.nl_project import as_spending, extract_projection, resolve_country
@@ -39,7 +41,7 @@ def test_as_spending_validates() -> None:
     assert as_spending("abc") is None
 
 
-def test_ask_end_to_end_with_fake_llm(monkeypatch) -> None:
+def test_ask_end_to_end_with_fake_llm(monkeypatch: pytest.MonkeyPatch) -> None:
     # Stub the gateway's LLM so the full NL -> params -> projection path runs offline.
     import loka_serving
 
@@ -62,7 +64,88 @@ def test_ask_end_to_end_with_fake_llm(monkeypatch) -> None:
     assert body["controlled"]["identification"] == "observational"
 
 
-def test_ask_lookup_goes_through_asks_branch(monkeypatch) -> None:
+def test_ask_refuses_a_predicate_not_declared_in_omega(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The refusal comes from Ω, not from a missing parameter."""
+    import loka_serving
+
+    fake = _fake_client(
+        '{"country":"Zambia","new_spending":null,"attribute":"stock_market_index"}'
+    )
+    monkeypatch.setattr(loka_serving, "llm_for", lambda purpose: fake)
+    monkeypatch.setattr(loka_serving, "model_for", lambda purpose: "m")
+
+    client = TestClient(create_app())
+    resp = client.post("/ask", json={"question": "Will Zambia's stock market rise tomorrow?"})
+    if resp.status_code == 500:  # panel absent in this env
+        return
+    body = resp.json()
+    assert body["answer"] == "don't know"
+    assert body["reason_code"] == "not_in_ontology"
+
+
+def test_removing_an_attribute_from_omega_breaks_the_lookup(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Ω is load-bearing: delete under5_mortality from Ω and the lookup stops answering."""
+    import loka_serving
+    import yaml
+
+    src_path = Path(__file__).resolve().parents[3] / "examples" / "health_ontology.yaml"
+    if not src_path.exists():  # ontology absent in this env
+        return
+    src = yaml.safe_load(src_path.read_text())
+    for ent in src["entities"]:
+        if ent["type"] == "Country":
+            ent["properties"] = [p for p in ent["properties"] if p["name"] != "under5_mortality"]
+    trimmed = tmp_path / "health_trimmed.yaml"
+    trimmed.write_text(yaml.safe_dump(src))
+    monkeypatch.setenv("LOKA_HEALTH_ONTOLOGY", str(trimmed))
+
+    fake = _fake_client('{"country":"Zambia","new_spending":null,"attribute":"under5_mortality"}')
+    monkeypatch.setattr(loka_serving, "llm_for", lambda purpose: fake)
+    monkeypatch.setattr(loka_serving, "model_for", lambda purpose: "m")
+
+    client = TestClient(create_app())
+    resp = client.post("/ask", json={"question": "What is Zambia's current child mortality?"})
+    if resp.status_code == 500:
+        return
+    body = resp.json()
+    assert body["answer"] == "don't know"
+    assert body["reason_code"] == "not_in_ontology"
+
+
+def test_projection_then_lookup_returns_the_observation(monkeypatch: pytest.MonkeyPatch) -> None:
+    """End-to-end guard: asking for a projection must not corrupt the later observed lookup."""
+    import loka_serving
+
+    monkeypatch.setattr(loka_serving, "model_for", lambda purpose: "m")
+    client = TestClient(create_app())
+
+    # 1) a projection (orders) -> a counterfactual value
+    monkeypatch.setattr(
+        loka_serving, "llm_for",
+        lambda purpose: _fake_client('{"country":"Zambia","new_spending":150,"attribute":null}'),
+    )
+    proj = client.post("/ask", json={"question": "If Zambia raises spending to 150, mortality?"})
+    if proj.status_code == 500:  # panel absent in this env
+        return
+    projected = proj.json()["controlled"]["projected_outcome"]
+
+    # 2) then the current value (asks) -> must still be the observation, not the projection
+    monkeypatch.setattr(
+        loka_serving, "llm_for",
+        lambda purpose: _fake_client(
+            '{"country":"Zambia","new_spending":null,"attribute":"under5_mortality"}'
+        ),
+    )
+    look = client.post("/ask", json={"question": "What is Zambia's current child mortality?"})
+    assert look.status_code == 200, look.text
+    body = look.json()
+    assert body["answer"] != projected
+    assert body["retrieved"]["provenance"]["kind"] == "observed"
+
+
+def test_ask_lookup_goes_through_asks_branch(monkeypatch: pytest.MonkeyPatch) -> None:
     # A current-value lookup -> asks(sp,li,?x:Country under5_mortality(x)) -> retrieve from KB.DATA.
     import loka_serving
 
@@ -81,7 +164,7 @@ def test_ask_lookup_goes_through_asks_branch(monkeypatch) -> None:
     assert isinstance(body["answer"], (int, float))  # a real retrieved value, not "don't know"
 
 
-def test_ask_out_of_domain_says_dont_know(monkeypatch) -> None:
+def test_ask_out_of_domain_says_dont_know(monkeypatch: pytest.MonkeyPatch) -> None:
     # Question the ontology can't support -> the LLM returns nulls -> system honestly says so.
     import loka_serving
 
@@ -94,7 +177,9 @@ def test_ask_out_of_domain_says_dont_know(monkeypatch) -> None:
     if resp.status_code == 500:  # panel absent in this env
         return
     assert resp.status_code == 200, resp.text
-    assert resp.json()["answer"] == "don't know"
+    body = resp.json()
+    assert body["answer"] == "don't know"
+    assert body["reason_code"] == "unknown_entity"  # this path: no country resolved
 
 
 def test_ask_without_llm_returns_503() -> None:

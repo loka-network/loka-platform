@@ -266,12 +266,14 @@ def create_app(world: World | None = None) -> FastAPI:
     def kb_endpoint() -> dict[str, Any]:
         """Show KB.DATA (facts, growing as queries are answered) and KB.METHODS (registered methods).
 
-        Demonstrates the professor's runtime rule: every ``informs(li,sp,P)`` adds P to KB.DATA,
-        so answered projections accumulate here (a queried KB is a growing KB).
+        ``data`` is the actual world only — observed facts, each with its provenance.
+        ``all_facts`` additionally includes counterfactual worlds produced by ``orders`` acts,
+        which are kept separate so a projection can never be read back as an observation.
         """
         kb = app.state.kb
         return {
-            "data": kb.facts(),
+            "data": kb.facts(),                          # actual world
+            "all_facts": kb.facts(all_scenarios=True),   # + counterfactual worlds
             "methods": [
                 {"name": m.name, "in_types": list(m.in_types), "out_type": m.out_type}
                 for m in kb.methods.values()
@@ -296,42 +298,72 @@ def create_app(world: World | None = None) -> FastAPI:
         than guessing. This is the ontology doing its job: the system knows its own limits.
         """
         from .nl_project import as_spending, formalize_query, resolve_country
+        from .scenario import ENTITY
 
         panel = _panel_or_500()
+        spec = app.state.health_method
+        engine = app.state.health_engine
+
+        # Ω is the authority on which predicates exist. Both the LLM prompt and the validation
+        # gate below are generated from it, so swapping the ontology swaps both.
+        if engine is not None and engine.has_entity(ENTITY):
+            omega_attrs = sorted(engine.properties_of(ENTITY))
+            omega_version: str | None = engine.version
+        else:
+            omega_attrs = sorted({spec["outcome"], spec["dial"], *spec["controls"]})
+            omega_version = None
+
         try:
             from loka_serving import llm_for, model_for
 
-            proposal = formalize_query(req.question, llm_for("projection"), model_for("projection"))
+            proposal = formalize_query(
+                req.question,
+                llm_for("projection"),
+                model_for("projection"),
+                attributes=omega_attrs,
+                entity=ENTITY,
+            )
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(
                 status_code=503,
                 detail=f"NL parsing needs an LLM (set OPENAI_*/ANTHROPIC_* + provider): {exc}",
             ) from exc
 
-        from .speechact import LISTENER, SPEAKER, Asks, Informs, Method, Orders, dispatch
+        from .speechact import (
+            LISTENER,
+            SPEAKER,
+            Asks,
+            Informs,
+            Method,
+            Orders,
+            Provenance,
+            dispatch,
+        )
 
-        spec = app.state.health_method
         outcome, dial = spec["outcome"], spec["dial"]
-        valid_attrs = {outcome, dial, *spec["controls"]}  # the ontology-validated attributes
         kb = app.state.kb
 
         iso = resolve_country(panel, proposal.get("country"))
         spending = as_spending(proposal.get("new_spending"))
         attribute = proposal.get("attribute")
 
-        def _dont_know(reason: str) -> dict[str, Any]:
-            # informs(li, sp, "don't know") — the query could not be formalized against Ω/KB.
+        def _dont_know(reason: str, code: str) -> dict[str, Any]:
+            # informs(li, sp, "don't know") — the query could not be grounded in Ω / KB.
             return {
                 "question": req.question,
                 "answer": "don't know",
                 "reason": reason,
+                "reason_code": code,
+                "ontology_version": omega_version,
                 "formalized_query": proposal,
                 "speech_act": {"act": "unformalizable", "query": None,
                                "response": Informs(LISTENER, SPEAKER, "don't know").render()},
             }
 
         if iso is None:
-            return _dont_know("the question could not be grounded (unknown country)")
+            return _dont_know(
+                "the question named no country present in the panel", "unknown_entity"
+            )
 
         # KB.METHODS: register the projection method m once (m[in,out] under5_mortality).
         if not kb.has_method("project_under5_mortality"):
@@ -344,22 +376,44 @@ def create_app(world: World | None = None) -> FastAPI:
                 in_types=("Country", dial), out_type=outcome, fn=_m,
             ))
 
-        # KB.DATA: seed the target country's current attributes (so asks(...) retrieves real facts).
-        target = max((r for r in panel if r["iso3"] == iso), key=lambda r: int(r["year"]))
-        for attr in valid_attrs:
-            if attr in target:
-                kb.add_fact(iso, attr, float(target[attr]))
-
         # asks branch: a pure lookup of a current DATA attribute.
         if proposal.get("intent") == "ask" and spending is None:
-            if attribute not in valid_attrs:
-                return _dont_know(f"'{attribute}' is not an attribute in the ontology Ω")
-            q_ask = Asks(SPEAKER, LISTENER, var_type="Country", entity_id=iso, predicate=attribute)
-            informs = dispatch(q_ask, kb)  # retrieve(d from KB.DATA)
-            content = informs.content if isinstance(informs.content, dict) else {}
+            if not isinstance(attribute, str) or attribute not in omega_attrs:
+                return _dont_know(
+                    f"'{attribute}' is not a property of {ENTITY} in ontology "
+                    f"{omega_version or '(none loaded)'}",
+                    "not_in_ontology",
+                )
+
+            # Seed observed facts only now — a refused query must not mutate the KB.
+            target = max((r for r in panel if r["iso3"] == iso), key=lambda r: int(r["year"]))
+            vintage = str(target.get("year", ""))
+            for attr in omega_attrs:
+                if attr not in target:
+                    continue
+                try:
+                    observed = float(target[attr])
+                except (TypeError, ValueError):
+                    continue
+                kb.add_fact(
+                    iso, attr, observed,
+                    provenance=Provenance(
+                        kind="observed", source="worldbank:WDI", vintage=vintage
+                    ),
+                )
+
+            q_ask = Asks(SPEAKER, LISTENER, var_type=ENTITY, entity_id=iso, predicate=attribute)
+            informs = dispatch(q_ask, kb)  # retrieve(d from KB.DATA), actual world only
+            if not isinstance(informs.content, dict):
+                return _dont_know(
+                    f"'{attribute}' is declared in Ω but no observed value exists for {iso}",
+                    "no_data",
+                )
+            content = informs.content
             return {
                 "question": req.question,
-                "answer": content.get("value", "don't know"),
+                "answer": content.get("value"),
+                "ontology_version": omega_version,
                 "formalized_query": {"country": iso, "attribute": attribute},
                 "retrieved": content,
                 "speech_act": {"act": "asks", "query": q_ask.render(), "response": informs.render()},
@@ -367,7 +421,9 @@ def create_app(world: World | None = None) -> FastAPI:
 
         # orders branch: change the dial, apply the projection method.
         if spending is None:
-            return _dont_know("no health-spending level given to project, and no attribute to look up")
+            return _dont_know(
+                "no property to look up and no spending level to project", "unformalizable"
+            )
 
         # q = orders(sp, li, m[in,out] P(x, m(x))) — apply the method, informs back, add P to KB.
         q = Orders(
@@ -379,6 +435,7 @@ def create_app(world: World | None = None) -> FastAPI:
 
         result = informs.content["detail"] if isinstance(informs.content, dict) else {}
         result["question"] = req.question
+        result["ontology_version"] = omega_version
         result["formalized_query"] = {"country": iso, "new_spending": spending}
         result["speech_act"] = {"act": "orders", "query": q.render(), "response": informs.render()}
 

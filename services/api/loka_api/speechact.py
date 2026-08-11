@@ -10,22 +10,27 @@ a listener, a typed variable, and a predicate, dispatched to KB.DATA or KB.METHO
 
     Runtime: for each informs(li,sp,P) with a concrete P  ->  add P to KB.DATA.
 
-This is load-bearing, not decoration:
-  * the variable is typed against the ontology (``?x:Country``);
-  * the predicate P must be an ontology attribute;
-  * the method m must be registered in KB.METHODS.
-A query whose predicate/method the KB cannot satisfy is refused with ``informs(li,sp,"don't know")``
-— the agent's honest limit, exactly as the professor wrote it.
+The runtime rule needs a qualification the slide leaves implicit: *which world* the informed
+predicate holds in. An ``orders`` act asks what would happen under a counterfactual dial setting,
+so its answer is not a fact about the actual world. KB.DATA is therefore indexed by
+``(entity, predicate, scenario)`` and every fact carries a :class:`Provenance` — ``observed`` (a
+reading of the world), ``derived`` (the output of a method), or ``asserted``. A derived value can
+never be written into the actual world, so a projection cannot overwrite an observation.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
 SPEAKER = "user"   # sp — the human posing the query
 LISTENER = "loka"  # li — the agent answering
+
+ACTUAL: str | None = None
+"""The scenario id of the actual world. Counterfactual facts carry a non-None id."""
 
 
 @dataclass(frozen=True)
@@ -86,6 +91,57 @@ class Informs:
         return f"informs({self.speaker}, {self.listener}, {body})"
 
 
+@dataclass(frozen=True)
+class Provenance:
+    """Where a fact came from. ``kind`` is the load-bearing field.
+
+    observed  — measured in the world (source + vintage identify the reading)
+    derived   — produced by applying a method (method + inputs identify the run)
+    asserted  — stated by a caller without further justification
+    """
+
+    kind: str
+    source: str | None = None
+    vintage: str | None = None
+    method: str | None = None
+    inputs: dict[str, Any] | None = None
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            k: v
+            for k, v in {
+                "kind": self.kind,
+                "source": self.source,
+                "vintage": self.vintage,
+                "method": self.method,
+                "inputs": self.inputs,
+            }.items()
+            if v is not None
+        }
+
+
+@dataclass(frozen=True)
+class Fact:
+    """One entry in KB.DATA: a predicate value, its provenance, and the world it holds in."""
+
+    entity: str
+    predicate: str
+    value: Any
+    provenance: Provenance
+    scenario_id: str | None = ACTUAL
+
+    def as_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {
+            "entity": self.entity,
+            "predicate": self.predicate,
+            "value": self.value,
+            "provenance": self.provenance.as_dict(),
+        }
+        if self.scenario_id is not ACTUAL:
+            d["scenario_id"] = self.scenario_id
+        return d
+
+
 @dataclass
 class Method:
     """A KB.METHODS entry: a callable m with declared in/out types."""
@@ -97,26 +153,69 @@ class Method:
 
 
 class KB:
-    """The agent's Knowledge Base: DATA (facts) + METHODS (applicable methods) — slide 7's KB."""
+    """The agent's Knowledge Base: DATA (facts) + METHODS (applicable methods) — slide 7's KB.
+
+    KB.DATA is indexed by ``(entity, predicate, scenario)``. The actual world is scenario
+    ``ACTUAL``; a counterfactual produced by a method lives under its own scenario id and can
+    never overwrite an observation. Retrieval defaults to the actual world.
+    """
 
     def __init__(self) -> None:
-        self.data: dict[tuple[str, str], Any] = {}   # (entity_id, predicate) -> value
+        self.data: dict[tuple[str, str, str | None], Fact] = {}
         self.methods: dict[str, Method] = {}
 
     # --- KB.DATA ---
-    def has_data(self, entity_id: str, predicate: str) -> bool:
-        return (entity_id, predicate) in self.data
+    def has_data(
+        self, entity_id: str, predicate: str, scenario_id: str | None = ACTUAL
+    ) -> bool:
+        return (entity_id, predicate, scenario_id) in self.data
 
-    def retrieve(self, entity_id: str, predicate: str) -> Any:
-        return self.data.get((entity_id, predicate))
+    def retrieve(
+        self, entity_id: str, predicate: str, scenario_id: str | None = ACTUAL
+    ) -> Any:
+        fact = self.data.get((entity_id, predicate, scenario_id))
+        return fact.value if fact is not None else None
 
-    def add_fact(self, entity_id: str, predicate: str, value: Any) -> None:
-        """Runtime: for each informs(li,sp,P) -> add P to KB.DATA."""
-        self.data[(entity_id, predicate)] = value
+    def fact(
+        self, entity_id: str, predicate: str, scenario_id: str | None = ACTUAL
+    ) -> Fact | None:
+        return self.data.get((entity_id, predicate, scenario_id))
 
-    def facts(self) -> list[dict[str, Any]]:
+    def add_fact(
+        self,
+        entity_id: str,
+        predicate: str,
+        value: Any,
+        provenance: Provenance | None = None,
+        scenario_id: str | None = ACTUAL,
+    ) -> None:
+        """Runtime: for each informs(li,sp,P) -> add P to KB.DATA.
+
+        A ``derived`` value may not be written into the actual world — that is what silently
+        turned a projection into an observation. It must carry a scenario id.
+        """
+        prov = provenance or Provenance(kind="asserted")
+        if prov.kind == "derived" and scenario_id is ACTUAL:
+            raise ValueError(
+                "a derived fact may not be written into the actual world; "
+                "pass a scenario_id identifying the counterfactual it holds in"
+            )
+        self.data[(entity_id, predicate, scenario_id)] = Fact(
+            entity=entity_id,
+            predicate=predicate,
+            value=value,
+            provenance=prov,
+            scenario_id=scenario_id,
+        )
+
+    def facts(
+        self, scenario_id: str | None = ACTUAL, all_scenarios: bool = False
+    ) -> list[dict[str, Any]]:
+        """Facts in one world (the actual one by default), or every world when ``all_scenarios``."""
         return [
-            {"entity": e, "predicate": p, "value": v} for (e, p), v in self.data.items()
+            f.as_dict()
+            for f in self.data.values()
+            if all_scenarios or f.scenario_id == scenario_id
         ]
 
     # --- KB.METHODS ---
@@ -127,27 +226,55 @@ class KB:
         return name in self.methods
 
 
+def scenario_id_for(q: Orders) -> str:
+    """A deterministic id for the counterfactual world an ``orders`` act creates."""
+    payload = json.dumps({"method": q.method, "args": q.args}, sort_keys=True, default=str)
+    return "cf:" + hashlib.sha256(payload.encode()).hexdigest()[:12]
+
+
 def dispatch(q: Asks | Orders, kb: KB) -> Informs:
     """Process a speech act q against the KB, returning the listener's ``informs`` reply.
 
-    Every concrete answer is written back into KB.DATA (the professor's runtime rule), so the KB
-    grows as it is queried. An unsatisfiable query returns ``informs(li, sp, "don't know")``.
+    ``asks`` reads the actual world only. ``orders`` applies a method and writes the result into
+    the counterfactual world it defines — never over an observation. An unsatisfiable query
+    returns ``informs(li, sp, "don't know")``.
     """
     if isinstance(q, Asks):
-        if kb.has_data(q.entity_id, q.predicate):
-            value = kb.retrieve(q.entity_id, q.predicate)
-            kb.add_fact(q.entity_id, q.predicate, value)  # informs -> add P to KB (idempotent here)
-            return Informs(q.listener, q.speaker,
-                           {"entity": q.entity_id, "predicate": q.predicate, "value": value})
+        fact = kb.fact(q.entity_id, q.predicate)  # actual world only
+        if fact is not None:
+            return Informs(
+                q.listener,
+                q.speaker,
+                {
+                    "entity": q.entity_id,
+                    "predicate": q.predicate,
+                    "value": fact.value,
+                    "provenance": fact.provenance.as_dict(),
+                },
+            )
         return Informs(q.listener, q.speaker, "don't know")
 
     # Orders
     if kb.has_method(q.method):
         result = kb.methods[q.method].fn(**q.args)
         value = result.get("value") if isinstance(result, dict) else result
-        kb.add_fact(q.entity_id, q.predicate, value)  # runtime: add P to KB
-        return Informs(q.listener, q.speaker, {
-            "entity": q.entity_id, "predicate": q.predicate, "value": value,
-            "detail": result.get("detail") if isinstance(result, dict) else result,
-        })
+        sid = scenario_id_for(q)
+        kb.add_fact(
+            q.entity_id,
+            q.predicate,
+            value,
+            provenance=Provenance(kind="derived", method=q.method, inputs=dict(q.args)),
+            scenario_id=sid,
+        )
+        return Informs(
+            q.listener,
+            q.speaker,
+            {
+                "entity": q.entity_id,
+                "predicate": q.predicate,
+                "value": value,
+                "scenario_id": sid,
+                "detail": result.get("detail") if isinstance(result, dict) else result,
+            },
+        )
     return Informs(q.listener, q.speaker, "don't know")

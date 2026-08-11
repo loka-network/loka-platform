@@ -35,30 +35,49 @@ def extract_projection(question: str, client: Any, model: str) -> dict[str, Any]
     return {"country": obj.get("country"), "new_spending": obj.get("new_spending")}
 
 
-_FORMALIZE_SYSTEM = (
-    "Classify a question about a country's child health into a formal query. Reply with ONLY a "
-    'JSON object: {"country": <name or ISO3, or null>, '
-    '"new_spending": <new health spending per capita in USD if the question CHANGES spending to '
-    'project mortality, else null>, '
-    '"attribute": <the single attribute being looked up if the question just ASKS for a current '
-    'value (one of: under5_mortality, health_exp_per_capita, gdp_per_capita, immunization_dpt, '
-    'sanitation_access, water_access, fertility_rate, urban_pct), else null>}. '
-    "A projection (change spending -> mortality) sets new_spending. A lookup (current value) sets "
-    "attribute. If neither applies, use nulls. No prose, no code fences."
-)
+def _formalize_system(entity: str, attributes: Sequence[str]) -> str:
+    """Build the formalization prompt from the ontology's declared properties.
+
+    The property list is *generated from Ω*, not hardcoded — swapping the ontology swaps the
+    prompt. The model is explicitly told to name an out-of-domain property rather than return
+    null, so it is the ontology (not the prompt) that refuses it downstream.
+    """
+    attrs = ", ".join(attributes)
+    return (
+        f"Formalize a question about a {entity} into a JSON query. Reply with ONLY a JSON object: "
+        '{"country": <country name or ISO3 code, or null>, '
+        '"new_spending": <new health spending per capita in USD, if the question asks to CHANGE '
+        'spending and project an outcome; else null>, '
+        '"attribute": <the single property the question asks about; else null>}. '
+        f"If that property is one of these declared properties, use the exact name: {attrs}. "
+        "If the question asks about some OTHER property, still name it in snake_case "
+        "(e.g. stock_market_index, annual_rainfall) — do NOT force it onto the list above, and "
+        "do NOT return null for it. Return null for attribute only if the question asks about no "
+        "property at all. No prose, no code fences."
+    )
 
 
-def formalize_query(question: str, client: Any, model: str) -> dict[str, Any]:
+def formalize_query(
+    question: str,
+    client: Any,
+    model: str,
+    *,
+    attributes: Sequence[str],
+    entity: str = "Country",
+) -> dict[str, Any]:
     """NL -> a classified query: intent = 'order' (apply method) | 'ask' (lookup DATA) | 'none'.
 
     ``order`` (Sifakis orders(...)) changes a dial and applies the projection method; ``ask``
     (asks(...)) retrieves a current attribute from KB.DATA. Intent is inferred from the fields so
     it is robust to models that only fill some of them.
+
+    ``attributes`` are the properties declared on ``entity`` in Ω. The model may propose a
+    property outside that set; validating it is the caller's job (and the ontology's authority).
     """
     resp = client.messages.create(
         model=model,
         max_tokens=200,
-        system=_FORMALIZE_SYSTEM,
+        system=_formalize_system(entity, attributes),
         messages=[{"role": "user", "content": question}],
     )
     text = "".join(getattr(b, "text", "") for b in resp.content if getattr(b, "type", "") == "text")
