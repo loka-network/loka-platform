@@ -13,6 +13,7 @@ outcome / dial / controls; no per-scenario code. ``log_cols`` names columns ente
 
 from __future__ import annotations
 
+import hashlib
 import math
 from collections.abc import Mapping, Sequence
 from typing import Any
@@ -82,6 +83,15 @@ def controlled_projection(
     n, p = len(Xs), len(cols) + 1
     if n <= p:
         raise ValueError(f"not enough rows ({n}) to fit {p} parameters")
+
+    # Fingerprint of the sample the model actually fitted on — the complete-case rows, not the
+    # source file. Two runs over the same data produce the same digest; a data revision produces
+    # a different one, so an audit record can tell "same answer" from "same answer by coincidence".
+    digest = hashlib.sha256()
+    digest.update(f"{outcome}|{dial}|{','.join(controls)}|{','.join(sorted(log))}".encode())
+    for x, y in zip(Xs, ys, strict=True):
+        digest.update(f"{y:.6g}|{'|'.join(f'{v:.6g}' for v in x)}\n".encode())
+    sample_digest = digest.hexdigest()[:16]
 
     # OLS: beta = (X'X)^-1 X'y
     XtX = [[0.0] * p for _ in range(p)]
@@ -153,7 +163,7 @@ def controlled_projection(
         "effect_se": round(se_effect, 4),
         "level_prediction_interval_95": [round(lvl_lo, 3), round(lvl_hi, 3)],
         "controls_held_fixed": {c: _num(target.get(c)) for c in controls},
-        "fit": {"n": n, "params": p, "r2": round(r2, 3)},
+        "fit": {"n": n, "params": p, "r2": round(r2, 3), "sample_digest": sample_digest},
         "identification": "observational",
         "note": (
             "association-based projection, anchored to the target's current value and holding its "

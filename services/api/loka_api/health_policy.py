@@ -44,6 +44,49 @@ def evaluate_scenarios(projection: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
+def _audit_inputs(
+    projection: dict[str, Any], *, iso: str, ontology_version: str, method_name: str
+) -> dict[str, Any]:
+    """Everything a replay needs: the authority, the method, the inputs, and the data it saw.
+
+    The earlier hash bound only Ω's version, the method, and the query inputs. That is not enough
+    to replay a decision: the projection is fitted across the whole panel, so a revision to *other*
+    countries' rows changes this country's answer while every hashed field stays identical — two
+    different answers under one hash. Including the fitted sample's digest (and the control values
+    held fixed, and the sample size) closes that: same inputs and same data reproduce the hash;
+    a data revision produces a different one.
+    """
+    fit = projection.get("fit", {})
+    controls = projection.get("controls_held_fixed", {})
+    return {
+        "ontology_version": ontology_version,
+        "method": method_name,
+        "entity": iso,
+        "outcome": projection["outcome"],
+        "dial": projection["dial"],
+        "dial_change": f"{projection['current_dial']}->{projection['new_dial']}",
+        "outcome_current": projection["current_outcome"],
+        "controls_held_fixed": {k: controls[k] for k in sorted(controls)},
+        "sample_digest": fit.get("sample_digest"),
+        "sample_n": fit.get("n"),
+        "sample_params": fit.get("params"),
+        # Without a sample digest the hash cannot distinguish two answers computed from different
+        # data — say so rather than let the audit trail look sound when it is not.
+        "replayable": fit.get("sample_digest") is not None,
+    }
+
+
+def _audit_preimage(inputs: dict[str, Any]) -> str:
+    """The exact string hashed — published alongside the hash so anyone can recompute it."""
+    controls = "|".join(f"{k}={v}" for k, v in inputs["controls_held_fixed"].items())
+    return (
+        f"{inputs['ontology_version']}|{inputs['method']}|{inputs['entity']}|"
+        f"{inputs['outcome']}|{inputs['dial']}|{inputs['dial_change']}|"
+        f"{inputs['outcome_current']}|{controls}|"
+        f"{inputs['sample_digest']}|{inputs['sample_n']}|{inputs['sample_params']}"
+    )
+
+
 def select_and_decide(
     projection: dict[str, Any],
     scenarios: list[dict[str, Any]],
@@ -70,10 +113,11 @@ def select_and_decide(
     eff_lo, eff_hi = projection.get("effect_interval_95", [None, None])
     significant = eff_lo is not None and (eff_lo > 0 or eff_hi < 0)
 
-    cur_dial, new_dial = projection["current_dial"], projection["new_dial"]
-    audit = hashlib.sha256(
-        f"{ontology_version}|{method_name}|{iso}|{cur_dial}->{new_dial}|{current}".encode()
-    ).hexdigest()[:16]
+    new_dial = projection["new_dial"]
+    audit_inputs = _audit_inputs(
+        projection, iso=iso, ontology_version=ontology_version, method_name=method_name
+    )
+    audit = hashlib.sha256(_audit_preimage(audit_inputs).encode()).hexdigest()[:16]
 
     if not significant:
         rec = (
@@ -102,6 +146,7 @@ def select_and_decide(
         "constraint_satisfied": (new_dial or 0) > 0,  # the guard: health_exp_per_capita > 0
         "identification": projection.get("identification", "observational"),
         "audit_manifest": audit,
+        "audit_inputs": audit_inputs,  # what the hash binds — recompute it to verify a replay
         "policy_engine": "basic (full PolicyFormer S6 not implemented)",
     }
 

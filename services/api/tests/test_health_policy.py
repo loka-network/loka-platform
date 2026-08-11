@@ -10,6 +10,7 @@ _PROJ = {
     "current_outcome": 49.1, "projected_outcome": 48.551,
     "interval_95": [40.2, 56.9], "identification": "observational",
     "effect": -0.549, "effect_interval_95": [-0.9, -0.2],  # excludes 0 -> significant
+    "fit": {"n": 4382, "params": 8, "r2": 0.809, "sample_digest": "11cfefa614c36ddc"},
 }
 
 _PROJ_NOT_SIGNIFICANT = {
@@ -68,6 +69,35 @@ def test_audit_hash_is_deterministic_for_replay() -> None:
     b = slide6_right_half(_PROJ, iso="ZMB", ontology_version="health-v1",
                           guard="g", method_name="m")["decision"]["audit_manifest"]
     assert a == b  # same inputs -> same hash (replayable)
+
+
+def test_audit_hash_binds_the_fitted_sample() -> None:
+    """A data revision must change the hash — otherwise two different answers share one audit id."""
+    a = slide6_right_half({**_PROJ, "fit": {"n": 4382, "params": 8, "sample_digest": "aaa"}},
+                          iso="ZMB", ontology_version="health-v1", guard="g", method_name="m")
+    b = slide6_right_half({**_PROJ, "fit": {"n": 4382, "params": 8, "sample_digest": "bbb"}},
+                          iso="ZMB", ontology_version="health-v1", guard="g", method_name="m")
+    assert a["decision"]["audit_manifest"] != b["decision"]["audit_manifest"]
+
+
+def test_audit_inputs_are_published_so_the_hash_can_be_recomputed() -> None:
+    import hashlib
+
+    from loka_api.health_policy import _audit_preimage
+
+    d = slide6_right_half(_PROJ, iso="ZMB", ontology_version="health-v1",
+                          guard="g", method_name="m")["decision"]
+    recomputed = hashlib.sha256(_audit_preimage(d["audit_inputs"]).encode()).hexdigest()[:16]
+    assert recomputed == d["audit_manifest"]  # an auditor can verify it independently
+    assert d["audit_inputs"]["sample_digest"] is not None
+    assert d["audit_inputs"]["replayable"] is True
+
+
+def test_a_decision_without_a_sample_digest_is_marked_not_replayable() -> None:
+    proj = {**_PROJ, "fit": {"n": 10, "params": 3}}  # no digest
+    d = slide6_right_half(proj, iso="ZMB", ontology_version="health-v1",
+                          guard="g", method_name="m")["decision"]
+    assert d["audit_inputs"]["replayable"] is False  # visible, not silently degraded
 
 
 def test_audit_hash_changes_with_ontology_version() -> None:
