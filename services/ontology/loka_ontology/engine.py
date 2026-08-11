@@ -150,6 +150,10 @@ class OntologyEngine:
     def relation(self, name: str) -> Relation | None:
         return next((r for r in self._onto.relations if r.name == name), None)
 
+    def relations(self) -> list[Relation]:
+        """Every relation in R (used for introspection; queries should use the ⪯-aware lookups)."""
+        return list(self._onto.relations)
+
     def path_between(
         self, from_type: str, to_type: str, *, max_hops: int = 4, allow_narrowing: bool = False
     ) -> list[tuple[Relation, bool]] | None:

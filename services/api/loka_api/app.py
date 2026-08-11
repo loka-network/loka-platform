@@ -141,6 +141,14 @@ class OntologyPublishRequest(BaseModel):
     version: str
 
 
+class ImpactRequest(BaseModel):
+    """Tighten an action's guard and ask what loses eligibility, and what that reaches."""
+
+    action: str
+    new_threshold: float
+    propagate_to: list[str] | None = None
+
+
 class OntologyCompileRequest(BaseModel):
     """An externally-built ontology posted to /compile-ontology (S1 + S2 → W(q,t))."""
 
@@ -337,6 +345,110 @@ def create_app(world: World | None = None) -> FastAPI:
             "attributes": attrs,
             "method": app.state.health_method,  # includes ontology_validated: true/false
         }
+
+    # ---- supply scenario: the relational half of Ω (R, ⪯, C) ----
+
+    from .supply import load_supply_dataset, load_supply_ontology
+
+    app.state.supply_engine = load_supply_ontology()
+    app.state.supply_data = load_supply_dataset(app.state.supply_engine)
+
+    def _relation_summaries(eng: Any) -> list[dict[str, Any]]:
+        return [
+            {
+                "name": r.name, "from": r.from_type, "to": r.to_type,
+                "via": r.via, "cardinality": r.cardinality,
+            }
+            for r in eng.relations()
+        ]
+
+    def _supply_or_503() -> Any:
+        eng = app.state.supply_engine
+        if eng is None:
+            raise HTTPException(
+                status_code=503, detail="supply ontology not found (set LOKA_SUPPLY_ONTOLOGY)"
+            )
+        return eng
+
+    @app.get("/supply/scenario")
+    def supply_scenario() -> dict[str, Any]:
+        """The relational ontology: entities, the relations linking them, and the guarded actions.
+
+        Where the health scenario has one entity and no relations, this one is where R, ⪯ and C
+        carry weight — so it is the ontology to look at to see what Ω does beyond type-checking
+        a single row.
+        """
+        eng = _supply_or_503()
+        data = app.state.supply_data
+        return {
+            "ontology_version": eng.version,
+            "entities": {
+                name: {
+                    "properties": sorted(eng.properties_of(name)),
+                    "subtype_of": (eng.supertypes(name) or [None])[0],
+                    "rows": len(data.get(name, [])),
+                }
+                for name in eng.entity_types()
+            },
+            "relations": _relation_summaries(eng),
+            "actions": [
+                {"name": a.name, "verb": a.verb, "target": a.target, "guard": a.guard}
+                for a in eng.action_types()
+            ],
+        }
+
+    @app.get("/supply/route")
+    def supply_route(from_type: str, to_type: str) -> dict[str, Any]:
+        """The route Ω declares between two entity types — no join is written anywhere.
+
+        Reports three distinct outcomes: a route, a route that reaches the target only by
+        narrowing to a subtype (a runtime check the type system cannot make), or no route at all.
+        """
+        eng = _supply_or_503()
+        for name in (from_type, to_type):
+            if not eng.has_entity(name):
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"'{name}' is not an entity in ontology {eng.version}",
+                )
+        path = eng.path_between(from_type, to_type)
+        narrowing = path is None and eng.needs_narrowing(from_type, to_type)
+        if narrowing:
+            path = eng.path_between(from_type, to_type, allow_narrowing=True)
+        if path is None:
+            return {
+                "from": from_type, "to": to_type, "route": None,
+                "reason": f"ontology {eng.version} declares no route between these types",
+            }
+        return {
+            "from": from_type,
+            "to": to_type,
+            "hops": len(path),
+            "route": [f"{r.name}{'>' if fwd else '<'}(via {r.via})" for r, fwd in path],
+            "requires_narrowing": narrowing,
+            "traversable": all(r.via for r, _ in path),
+        }
+
+    @app.post("/supply/impact")
+    def supply_impact(req: ImpactRequest) -> dict[str, Any]:
+        """Tighten a guard declared in Ω; report what loses eligibility and what that reaches.
+
+        Every part of the answer comes from the ontology: the rule is an action's guard, the
+        attribute it names must be declared on the action's target, subtypes are included via ⪯,
+        and the consequence is followed along the declared relations by their declared link
+        fields. Nothing here is a rule written in application code.
+        """
+        from .supply import impact_of_tightening
+
+        eng = _supply_or_503()
+        out: dict[str, Any] = impact_of_tightening(
+            eng, app.state.supply_data,
+            action_name=req.action, new_threshold=req.new_threshold,
+            propagate_to=req.propagate_to,
+        )
+        if "error" in out:
+            raise HTTPException(status_code=400, detail=out)
+        return out
 
     @app.get("/kb")
     def kb_endpoint() -> dict[str, Any]:
