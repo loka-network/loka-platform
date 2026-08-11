@@ -21,17 +21,26 @@ from typing import Any
 
 
 def evaluate_scenarios(projection: dict[str, Any]) -> list[dict[str, Any]]:
-    """Scenario Evaluation (EcoFormer stand-in): read nominal + bounds off the projection interval.
+    """Scenario Evaluation (EcoFormer stand-in): bound the projection by the *effect's* CI.
 
     Under-5 mortality is a *lower-is-better* outcome, so the interval's upper bound is the adverse
-    scenario and the lower bound the favourable one. Derived from the real 95% interval, not canned.
+    scenario and the lower bound the favourable one. The bounds come from ``interval_95``, which is
+    the CI implied by the effect's standard error — not the far wider level prediction interval,
+    which answers "where can one country sit relative to the fitted surface" and would produce
+    absurd scenarios.
+
+    The ``prob`` weights are placeholders (a nominal/bounds split), not calibrated probabilities;
+    a real simulator would produce a distribution. They are labelled as such in the output.
     """
     point = projection["projected_outcome"]
     lo, hi = projection["interval_95"]
     return [
-        {"scenario_id": "nominal", "kind": "nominal", "under5_mortality": point, "prob": 0.6},
-        {"scenario_id": "adverse", "kind": "adverse", "under5_mortality": hi, "prob": 0.2},
-        {"scenario_id": "favorable", "kind": "favorable", "under5_mortality": lo, "prob": 0.2},
+        {"scenario_id": "nominal", "kind": "nominal", "under5_mortality": point,
+         "prob": 0.6, "prob_basis": "placeholder"},
+        {"scenario_id": "adverse", "kind": "adverse", "under5_mortality": hi,
+         "prob": 0.2, "prob_basis": "placeholder"},
+        {"scenario_id": "favorable", "kind": "favorable", "under5_mortality": lo,
+         "prob": 0.2, "prob_basis": "placeholder"},
     ]
 
 
@@ -55,21 +64,37 @@ def select_and_decide(
     chosen = next(s for s in scenarios if s["kind"] == "nominal")
     projected = chosen["under5_mortality"]
     delta = round(projected - current, 3)
-    improves = delta < 0
+
+    # Is the effect distinguishable from zero? If its 95% CI straddles 0, the data does not
+    # support claiming a direction, and the memo must not claim one.
+    eff_lo, eff_hi = projection.get("effect_interval_95", [None, None])
+    significant = eff_lo is not None and (eff_lo > 0 or eff_hi < 0)
 
     cur_dial, new_dial = projection["current_dial"], projection["new_dial"]
     audit = hashlib.sha256(
         f"{ontology_version}|{method_name}|{iso}|{cur_dial}->{new_dial}|{current}".encode()
     ).hexdigest()[:16]
 
-    verb = "reduces" if improves else "does not reduce"
-    rec = (
-        f"Raising {projection['dial']} to {new_dial} {verb} {projection['outcome']} for {iso}: "
-        f"{current} -> {projected} ({'−' if improves else '+'}{abs(delta)}), "
-        f"95% CI {projection['interval_95']}."
-    )
+    if not significant:
+        rec = (
+            f"No effect distinguishable from zero: raising {projection['dial']} to {new_dial} "
+            f"for {iso} shifts {projection['outcome']} by {delta} "
+            f"(95% CI {projection.get('effect_interval_95')}), an interval that includes 0. "
+            f"The data does not support claiming this change reduces {projection['outcome']}."
+        )
+    else:
+        improves = delta < 0
+        verb = "reduces" if improves else "increases"
+        rec = (
+            f"Raising {projection['dial']} to {new_dial} {verb} {projection['outcome']} for {iso}: "
+            f"{current} -> {projected} ({'−' if improves else '+'}{abs(delta)}, "
+            f"95% CI {projection.get('effect_interval_95')})."
+        )
     return {
         "recommendation": rec,
+        "effect": delta,
+        "effect_interval_95": projection.get("effect_interval_95"),
+        "effect_distinguishable_from_zero": significant,
         "welfare_objective": f"minimize {projection['outcome']}",
         "chosen_scenario": chosen["scenario_id"],
         "contingency_scenario": "adverse",

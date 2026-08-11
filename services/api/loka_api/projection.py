@@ -115,27 +115,55 @@ def controlled_projection(
         raise ValueError("new_dial is invalid (non-positive under log?)")
     point = predict(x_new) + anchor
 
-    # 95% prediction interval
+    # The decision question is the *effect* of moving the dial, not the level. Because the
+    # projection is anchored, point == y_cur + beta_dial * delta_t exactly, so the uncertainty
+    # that matters is Var(beta_dial) — not the residual spread across the panel.
+    cur_dial_val = _num(target.get(dial))
+    assert cur_dial_val is not None  # feat(target) succeeded, so the dial is present and valid
+    delta_t = _t(dial, float(new_dial)) - _t(dial, cur_dial_val)
+    e_dial = [0.0] * p
+    e_dial[1] = 1.0  # column 1 is the dial (column 0 is the intercept)
+    var_beta_dial = s2 * _solve(XtX, e_dial)[1]
+    se_effect = math.sqrt(max(var_beta_dial, 0.0)) * abs(delta_t)
+    effect = beta[1] * delta_t
+    eff_lo, eff_hi = effect - 1.96 * se_effect, effect + 1.96 * se_effect
+    lo, hi = point - 1.96 * se_effect, point + 1.96 * se_effect
+
+    # A prediction interval for the *level* — how far one country can sit from the fitted
+    # surface. Reported for context; it is not the interval the decision should be read against.
     z = _solve(XtX, x_new)
     leverage = sum(a * b for a, b in zip(x_new, z))
-    se = math.sqrt(max(s2 * (1.0 + leverage), 0.0))
-    lo, hi = point - 1.96 * se, point + 1.96 * se
+    se_level = math.sqrt(max(s2 * (1.0 + leverage), 0.0))
+    lvl_lo, lvl_hi = point - 1.96 * se_level, point + 1.96 * se_level
+
     if clamp_min is not None:
         point, lo, hi = max(point, clamp_min), max(lo, clamp_min), max(hi, clamp_min)
+        lvl_lo, lvl_hi = max(lvl_lo, clamp_min), max(lvl_hi, clamp_min)
 
     return {
         "outcome": outcome,
         "dial": dial,
-        "current_dial": _num(target.get(dial)),
+        "current_dial": cur_dial_val,
         "new_dial": float(new_dial),
         "current_outcome": round(y_cur, 3),
         "projected_outcome": round(point, 3),
         "interval_95": [round(lo, 3), round(hi, 3)],
+        "effect": round(effect, 3),
+        "effect_interval_95": [round(eff_lo, 3), round(eff_hi, 3)],
+        "effect_se": round(se_effect, 4),
+        "level_prediction_interval_95": [round(lvl_lo, 3), round(lvl_hi, 3)],
         "controls_held_fixed": {c: _num(target.get(c)) for c in controls},
         "fit": {"n": n, "params": p, "r2": round(r2, 3)},
         "identification": "observational",
         "note": (
             "association-based projection, anchored to the target's current value and holding its "
             "controls fixed; NOT an identified causal effect (residual confounding may remain)"
+        ),
+        "interval_note": (
+            "interval_95 is the 95% CI of the projected level implied by the effect's standard "
+            "error (Var(beta_dial)) — the interval the decision is read against. "
+            "level_prediction_interval_95 is the much wider prediction interval for where a "
+            "single country's level may sit relative to the fitted surface; it answers a "
+            "different question and must not be read as the uncertainty of the change."
         ),
     }
