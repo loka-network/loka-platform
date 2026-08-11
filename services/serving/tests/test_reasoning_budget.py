@@ -1,6 +1,8 @@
 """Reasoning models spend the budget on reasoning_content before emitting content."""
 from __future__ import annotations
+
 from types import SimpleNamespace
+
 import pytest
 from loka_serving.client import EmptyCompletionError, OpenAICompatClient, min_max_tokens
 
