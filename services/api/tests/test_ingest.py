@@ -3,16 +3,19 @@
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
+from lifecycle import publish_built_ontology
 from loka_api.app import create_app
 
 
 def test_ingest_then_answer_returns_real_data_and_causal() -> None:
     client = TestClient(create_app())
 
-    kb_id = client.post(
+    built = client.post(
         "/build-kb",
         json={"texts": ["The Central Bank sets the Policy Rate, which affects GDP."]},
-    ).json()["kb_id"]
+    ).json()
+    kb_id = built["kb_id"]
+    publish_built_ontology(client, built)  # a draft ontology cannot authorize an answer
 
     ing = client.post(
         f"/kb/{kb_id}/ingest",

@@ -129,6 +129,18 @@ class AnswerRequest(BaseModel):
     kb_id: str | None = None  # answer against a KB built via /build-kb; else the default world
 
 
+class OntologyEditRequest(BaseModel):
+    """A reviewer's edited ontology, submitted for CΩ validation."""
+
+    ontology_yaml: str
+
+
+class OntologyPublishRequest(BaseModel):
+    """Human approval: freeze the reviewed ontology under a version decisions will cite."""
+
+    version: str
+
+
 class OntologyCompileRequest(BaseModel):
     """An externally-built ontology posted to /compile-ontology (S1 + S2 → W(q,t))."""
 
@@ -145,6 +157,21 @@ def create_app(world: World | None = None) -> FastAPI:
     app.state.world = world or build_world_from_env()
     app.state.kb_worlds = {}  # kb_id -> World, populated by /build-kb
     app.state.kb = KB()  # slide-7 KB.DATA/KB.METHODS; grows as queries are answered (add P to KB)
+
+    from .ontology_store import OntologyRecord, OntologyStore
+
+    app.state.ontologies = OntologyStore()  # draft -> validated -> published lifecycle
+
+    def _store() -> OntologyStore:
+        """Typed access to the lifecycle store (app.state is untyped)."""
+        store: OntologyStore = app.state.ontologies
+        return store
+
+    def _record_or_404(ontology_id: str) -> OntologyRecord:
+        rec = _store().get(ontology_id)
+        if rec is None:
+            raise HTTPException(status_code=404, detail=f"unknown ontology: {ontology_id}")
+        return rec
 
     # Load the health ontology Ω and validate the projection method against it, so the method's
     # attributes are the ontology's attributes (the ontology is load-bearing, not decorative).
@@ -236,12 +263,61 @@ def create_app(world: World | None = None) -> FastAPI:
 
         kb_id = uuid.uuid4().hex[:12]
         app.state.kb_worlds[kb_id] = world_from_kbspec(spec)
+
+        # The built ontology is a *proposal*: it enters the lifecycle as a draft and cannot
+        # authorize an answer until a reviewer has edited it through CΩ and published it.
+        rec = _store().create_draft(spec.ontology_yaml, source=f"builder:{builder_mode}")
+        app.state.kb_worlds[kb_id].ontology_id = rec.ontology_id
+
         out: dict[str, Any] = jsonable_encoder(spec)
         out["kb_id"] = kb_id  # pass to /answer to query against this built KB
         out["builder"] = builder_mode  # 'llm' (professor's way) or 'keyword' (rule-based)
+        out["ontology_id"] = rec.ontology_id
+        out["state"] = rec.state  # 'draft' — not yet able to authorize answers
+        out["review"] = rec.review  # what a human must decide before this can be published
         if build_note:
             out["build_note"] = build_note  # why the LLM path was skipped, if it was
         return out
+
+    @app.get("/ontology")
+    def list_ontologies() -> dict[str, Any]:
+        """Every ontology in the lifecycle, with its state and (once published) its version."""
+        return {"ontologies": _store().list()}
+
+    @app.get("/ontology/{ontology_id}")
+    def get_ontology(ontology_id: str) -> dict[str, Any]:
+        """The ontology YAML plus the review checklist — what a human must decide about it."""
+        return _record_or_404(ontology_id).as_dict()
+
+    @app.put("/ontology/{ontology_id}")
+    def edit_ontology(ontology_id: str, req: OntologyEditRequest) -> dict[str, Any]:
+        """Submit a reviewer's edit. Runs CΩ; on success the ontology becomes ``validated``.
+
+        A CΩ failure returns 400 naming the rule that rejected it, so the reviewer sees what to
+        fix rather than a generic error.
+        """
+        from .ontology_store import OntologyStateError
+
+        _record_or_404(ontology_id)
+        try:
+            rec = _store().update(ontology_id, req.ontology_yaml)
+        except OntologyStateError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001 - CΩ rejection is a client error, not a crash
+            raise HTTPException(status_code=400, detail=f"CΩ rejected the ontology: {exc}") from exc
+        return rec.as_dict()
+
+    @app.post("/ontology/{ontology_id}/publish")
+    def publish_ontology(ontology_id: str, req: OntologyPublishRequest) -> dict[str, Any]:
+        """Human approval. Freezes the ontology under a version that decisions may cite."""
+        from .ontology_store import OntologyStateError
+
+        _record_or_404(ontology_id)
+        try:
+            rec = _store().publish(ontology_id, req.version)
+        except OntologyStateError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return rec.as_dict()
 
     def _panel_or_500() -> list[dict[str, Any]]:
         panel = app.state.__dict__.setdefault("_health_panel", _load_health_panel())
@@ -480,6 +556,21 @@ def create_app(world: World | None = None) -> FastAPI:
             w = app.state.kb_worlds.get(req.kb_id)
             if w is None:
                 raise HTTPException(status_code=404, detail=f"unknown kb_id: {req.kb_id}")
+
+            # Only a published ontology may authorize an answer. A builder's proposal — however
+            # well-formed — has not been reviewed, so it cannot stand behind a result.
+            oid = getattr(w, "ontology_id", None)
+            rec = _store().get(oid) if oid else None
+            if rec is not None and rec.state != "published":
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"ontology {oid} is '{rec.state}', not 'published': a generated ontology "
+                        f"must pass CΩ and be approved before it can authorize an answer. "
+                        f"{len(rec.review)} review item(s) outstanding — "
+                        f"GET /ontology/{oid}, PUT the reviewed YAML, then POST .../publish."
+                    ),
+                )
         try:
             return answer(w, req.question, query_id=req.query_id)
         except CompileError as exc:

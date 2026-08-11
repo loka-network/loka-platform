@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
+from lifecycle import publish_built_ontology
 from loka_api.app import create_app
 
 
@@ -17,6 +18,8 @@ def test_build_then_answer_against_built_kb() -> None:
     assert built.status_code == 200, built.text
     kb_id = built.json()["kb_id"]
     assert kb_id
+    # The built ontology is a draft: review it through CΩ and publish before it may answer.
+    publish_built_ontology(client, built.json())
 
     # Workflow B — ask a question against THAT built KB.
     ans = client.post(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
+from lifecycle import publish_built_ontology
 from loka_api.app import create_app
 
 
@@ -32,9 +33,11 @@ def test_answer_proposes_governed_action() -> None:
 
 def test_built_kb_without_actions_has_none() -> None:
     client = TestClient(create_app())
-    kb_id = client.post(
+    built = client.post(
         "/build-kb", json={"texts": ["The Central Bank sets the Policy Rate which affects GDP."]}
-    ).json()["kb_id"]
+    ).json()
+    kb_id = built["kb_id"]
+    publish_built_ontology(client, built)  # a draft ontology cannot authorize an answer
     body = client.post(
         "/answer", json={"query_id": "q2", "question": "Give the GDP reading.", "kb_id": kb_id}
     ).json()

@@ -132,7 +132,7 @@ def world_from_kbspec(spec: object) -> World:
     default mission lets the compiler run. Queries against this world therefore ground and compile
     against the just-built ontology, with empty state/causal until those are ingested.
     """
-    ontology_yaml = getattr(spec, "ontology_yaml")
+    ontology_yaml = spec.ontology_yaml
     engine = OntologyEngine(load_ontology_str(ontology_yaml))
     return World(
         engine=engine,
