@@ -23,6 +23,25 @@ def default_model() -> str:
     return os.getenv("LOKA_LLM_MODEL") or os.getenv("OPENAI_MODEL") or "claude-opus-4-8"
 
 
+def min_max_tokens() -> int:
+    """Floor applied to ``max_tokens`` for OpenAI-compatible endpoints.
+
+    Reasoning models (DeepSeek V4, o-series, …) spend the token budget on an internal chain of
+    thought — returned in ``reasoning_content`` — *before* emitting any ``content``. A caller that
+    asks for 200 tokens of JSON can therefore get an empty or truncated answer with
+    ``finish_reason: length``, which surfaces as an unhelpful parse failure. The floor gives the
+    reasoning pass headroom; a non-reasoning model simply stops early and is unaffected.
+    """
+    try:
+        return int(os.getenv("LOKA_LLM_MIN_MAX_TOKENS", "1024"))
+    except ValueError:
+        return 1024
+
+
+class EmptyCompletionError(RuntimeError):
+    """The endpoint returned no content — typically the token budget went to reasoning."""
+
+
 class _OpenAICompatMessages:
     """Adapts an OpenAI-compatible chat endpoint to the Anthropic ``messages.create`` shape."""
 
@@ -40,9 +59,20 @@ class _OpenAICompatMessages:
     ) -> Any:
         msgs = ([{"role": "system", "content": system}] if system else []) + list(messages)
         resp = self._client.chat.completions.create(
-            model=model, max_tokens=max_tokens, messages=msgs
+            model=model, max_tokens=max(max_tokens, min_max_tokens()), messages=msgs
         )
-        text = resp.choices[0].message.content or ""
+        choice = resp.choices[0]
+        text = choice.message.content or ""
+        if not text.strip():
+            # Distinguish "the model produced nothing usable" from "the JSON was malformed",
+            # so the operator sees the actual cause instead of a parse error.
+            reasoning = getattr(choice.message, "reasoning_content", None)
+            raise EmptyCompletionError(
+                f"model {model} returned no content "
+                f"(finish_reason={getattr(choice, 'finish_reason', '?')}"
+                + (f", {len(reasoning)} chars of reasoning" if reasoning else "")
+                + "); raise max_tokens or LOKA_LLM_MIN_MAX_TOKENS"
+            )
         return SimpleNamespace(content=[SimpleNamespace(type="text", text=text)])
 
 

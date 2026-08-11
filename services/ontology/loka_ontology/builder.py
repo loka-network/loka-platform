@@ -155,7 +155,7 @@ class LLMBuilder:
     def propose(self, texts: Sequence[str]) -> OntologyDraft:
         resp = self._client.messages.create(
             model=self._model,
-            max_tokens=1500,
+            max_tokens=4000,
             system=self._SYSTEM,
             messages=[{"role": "user", "content": "\n".join(texts)}],
         )

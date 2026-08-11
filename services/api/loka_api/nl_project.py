@@ -25,7 +25,7 @@ def extract_projection(question: str, client: Any, model: str) -> dict[str, Any]
     """Ask the LLM to propose {country, new_spending} from a natural-language question."""
     resp = client.messages.create(
         model=model,
-        max_tokens=200,
+        max_tokens=1000,
         system=_SYSTEM,
         messages=[{"role": "user", "content": question}],
     )
@@ -76,7 +76,7 @@ def formalize_query(
     """
     resp = client.messages.create(
         model=model,
-        max_tokens=200,
+        max_tokens=1000,
         system=_formalize_system(entity, attributes),
         messages=[{"role": "user", "content": question}],
     )
