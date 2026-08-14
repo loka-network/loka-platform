@@ -45,19 +45,37 @@ def llm_for(purpose: str) -> Any:
     return client
 
 
-def behavior_for(persona: Persona, *, client: Any | None = None) -> BehaviorEngine:
-    """Return a behavior engine for a persona.
+def behavior_for(persona: Persona, *, client: Any | None = None) -> tuple[BehaviorEngine, str]:
+    """Return a behavior engine for a persona, and what kind of engine it is.
 
-    Real deployment: a vLLM behavior-model endpoint (LOKA_BEHAVIOR_BASE_URL) with the persona's
-    domain selecting its LoRA. If no client/endpoint is available, fall back to the deterministic
-    stub so the simulator still runs.
+    Three cases, and the caller is told which it got, because they are not interchangeable:
+
+      ``behavior-model``   a served behavior model (LOKA_BEHAVIOR_BASE_URL), the persona's domain
+                           selecting its adapter. This is the one trained to act *as* a persona.
+      ``general-llm``      the ordinary model gateway, standing in. A general assistant is
+                           agreeable by construction, so it under-produces the refusals, delays
+                           and adversarial moves a simulation exists to find. Usable, but a
+                           result from it must not be read as a calibrated behavioural forecast.
+      ``stub``             deterministic placeholder; no behaviour at all.
+
+    Returning the kind alongside the engine is what lets an output say which one produced it,
+    rather than presenting all three as the same thing.
     """
     base = os.getenv("LOKA_BEHAVIOR_BASE_URL")
     if client is None and base:
         client = OpenAICompatClient(base_url=base, api_key=os.getenv("LOKA_BEHAVIOR_API_KEY"))
+        model = os.getenv("LOKA_BEHAVIOR_MODEL_TMPL", "{domain}").format(domain=persona.domain)
+        _log("behavior", persona.domain, model)
+        return LLMBehaviorEngine(client=client, model=model), "behavior-model"
     if client is not None:
         model = os.getenv("LOKA_BEHAVIOR_MODEL_TMPL", "{domain}").format(domain=persona.domain)
         _log("behavior", persona.domain, model)
-        return LLMBehaviorEngine(client=client, model=model)
-    _log("behavior", persona.domain, "stub")
-    return StubBehaviorEngine()
+        return LLMBehaviorEngine(client=client, model=model), "behavior-model"
+
+    try:  # no dedicated endpoint — stand in with the general gateway, and say so
+        general = make_llm_client()
+        _log("behavior", persona.domain, f"{default_model()} (stand-in)")
+        return LLMBehaviorEngine(client=general, model=default_model()), "general-llm"
+    except Exception:  # noqa: BLE001 - no model reachable at all
+        _log("behavior", persona.domain, "stub")
+        return StubBehaviorEngine(), "stub"

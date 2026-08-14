@@ -22,7 +22,7 @@ from loka_schemas import TypedQuery
 from .actions import propose_actions
 from .methods import resolve
 from .policy import decide
-from .simulation import simulate
+from .simulation import actor_reactions, simulate
 from .world import World
 
 if TYPE_CHECKING:  # the grounding package is an optional dependency at runtime
@@ -59,6 +59,14 @@ def answer(world: World, question: str, *, query_id: str) -> dict[str, Any]:
     cited = [c.claim_id for c in wqt.causal_slice.claims] if wqt.causal_slice else []
     disagreements = contradictions_for(world, cited)
 
+    # 4b · How the actors Ω permits would respond to the downside. Reported with the kind of
+    # engine that produced it, since a stand-in and a trained behavior model are not the same
+    # evidence.
+    adverse = next((s for s in scenarios if s.kind == "adverse"), None)
+    reactions = actor_reactions(
+        world.engine, str(adverse.outcome) if adverse is not None else "baseline"
+    )
+
     return {
         "query_id": query_id,
         "question": question,
@@ -69,6 +77,7 @@ def answer(world: World, question: str, *, query_id: str) -> dict[str, Any]:
         "decision": jsonable_encoder(memo),
         "actions": jsonable_encoder(actions),
         "evidence_conflicts": disagreements,
+        "actor_reactions": reactions,
         "stages": {
             "grounding": grounding_mode,
             "query_dispatch": "real",
@@ -76,6 +85,7 @@ def answer(world: World, question: str, *, query_id: str) -> dict[str, Any]:
             "causal": "real" if world.causal is not None else "empty",
             "evidence": ("conflicted" if disagreements else "consistent") if cited else "none",
             "simulation": "basic" if has_causal_claims else "stub",
+            "behavior": reactions["engine"],
             "policy": "basic",
             "action": "basic" if actions else "none",
         },

@@ -154,6 +154,16 @@ class OntologyEngine:
         """Every relation in R (used for introspection; queries should use the ⪯-aware lookups)."""
         return list(self._onto.relations)
 
+    def actor_types(self) -> list[str]:
+        """Entity types Ω permits to act — those a typing constraint names as an agent.
+
+        A simulation needs to know who the actors are. Reading them from C rather than listing
+        them in application code keeps the answer to "who can act here" a property of the
+        ontology: add a constraint naming a new agent type and it becomes an actor, remove it
+        and it stops being one.
+        """
+        return sorted({c.agent_must_be for c in self._onto.constraints})
+
     def path_between(
         self, from_type: str, to_type: str, *, max_hops: int = 4, allow_narrowing: bool = False
     ) -> list[tuple[Relation, bool]] | None:
