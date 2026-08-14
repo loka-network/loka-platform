@@ -42,7 +42,7 @@ def _stub_behavior(kind: str) -> object:
 
 
 def test_the_actors_are_the_agents_omega_declares(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("loka_serving.behavior_for", _stub_behavior("behavior-model"))
+    monkeypatch.setattr("loka_serving.persona_engine_for", _stub_behavior("behavior-model"))
     out = actor_reactions(_engine(_WITH_ACTORS), "a delivery slips by a week")
     assert [a["actor"] for a in out["actors"]] == ["Platform", "Seller"]
     # Product is an entity but never an agent, so it is not an actor
@@ -57,7 +57,7 @@ def test_an_ontology_that_names_no_agent_has_no_actors() -> None:
 
 
 def test_a_stand_in_engine_is_reported_as_uncalibrated(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("loka_serving.behavior_for", _stub_behavior("general-llm"))
+    monkeypatch.setattr("loka_serving.persona_engine_for", _stub_behavior("general-llm"))
     out = actor_reactions(_engine(_WITH_ACTORS), "a delivery slips")
     assert out["engine"] == "general-llm"
     assert out["calibrated"] is False
@@ -67,7 +67,7 @@ def test_a_stand_in_engine_is_reported_as_uncalibrated(monkeypatch: pytest.Monke
 def test_the_trained_behavior_model_is_the_only_one_called_calibrated(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("loka_serving.behavior_for", _stub_behavior("behavior-model"))
+    monkeypatch.setattr("loka_serving.persona_engine_for", _stub_behavior("behavior-model"))
     out = actor_reactions(_engine(_WITH_ACTORS), "a delivery slips")
     assert out["calibrated"] is True
     assert out["note"] == ""
@@ -79,6 +79,6 @@ def test_an_actor_that_fails_does_not_take_down_the_answer(
     def _boom(persona: object) -> object:
         raise RuntimeError("model unreachable")
 
-    monkeypatch.setattr("loka_serving.behavior_for", _boom)
+    monkeypatch.setattr("loka_serving.persona_engine_for", _boom)
     out = actor_reactions(_engine(_WITH_ACTORS), "a delivery slips")
     assert all("error" in a for a in out["actors"])   # reported per actor, not raised

@@ -9,8 +9,10 @@ constructs, routes, and logs it.
 Config:
   general LLM      — LOKA_LLM_PROVIDER / BASE_URL / API_KEY / MODEL (see client.py);
                      per-purpose override: LOKA_LLM_MODEL_<PURPOSE>
-  behavior model   — LOKA_BEHAVIOR_BASE_URL / API_KEY, LOKA_BEHAVIOR_MODEL_TMPL (default "{domain}")
-                     so a persona's domain selects its served LoRA name.
+  behaviour model  — LOKA_BEHAVIOR_BASE_URL / API_KEY, LOKA_BEHAVIOR_MODEL_TMPL (default "{domain}")
+                     so a persona's domain selects its served LoRA name. The variables name the
+                     external behaviour foundation model; inside this codebase the port it backs
+                     is the *persona* engine, which simulates other actors (see persona_engine).
 """
 
 from __future__ import annotations
@@ -18,8 +20,8 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from .behavior import BehaviorEngine, LLMBehaviorEngine, Persona, StubBehaviorEngine
 from .client import OpenAICompatClient, default_model, make_llm_client
+from .persona_engine import LLMPersonaEngine, Persona, PersonaEngine, StubPersonaEngine
 
 _AUDIT: list[dict[str, str]] = []
 
@@ -45,12 +47,14 @@ def llm_for(purpose: str) -> Any:
     return client
 
 
-def behavior_for(persona: Persona, *, client: Any | None = None) -> tuple[BehaviorEngine, str]:
-    """Return a behavior engine for a persona, and what kind of engine it is.
+def persona_engine_for(
+    persona: Persona, *, client: Any | None = None
+) -> tuple[PersonaEngine, str]:
+    """Return a persona engine, and what kind of engine it is.
 
     Three cases, and the caller is told which it got, because they are not interchangeable:
 
-      ``behavior-model``   a served behavior model (LOKA_BEHAVIOR_BASE_URL), the persona's domain
+      ``behavior-model``   a served behaviour model (LOKA_BEHAVIOR_BASE_URL), the persona's domain
                            selecting its adapter. This is the one trained to act *as* a persona.
       ``general-llm``      the ordinary model gateway, standing in. A general assistant is
                            agreeable by construction, so it under-produces the refusals, delays
@@ -66,16 +70,16 @@ def behavior_for(persona: Persona, *, client: Any | None = None) -> tuple[Behavi
         client = OpenAICompatClient(base_url=base, api_key=os.getenv("LOKA_BEHAVIOR_API_KEY"))
         model = os.getenv("LOKA_BEHAVIOR_MODEL_TMPL", "{domain}").format(domain=persona.domain)
         _log("behavior", persona.domain, model)
-        return LLMBehaviorEngine(client=client, model=model), "behavior-model"
+        return LLMPersonaEngine(client=client, model=model), "behavior-model"
     if client is not None:
         model = os.getenv("LOKA_BEHAVIOR_MODEL_TMPL", "{domain}").format(domain=persona.domain)
         _log("behavior", persona.domain, model)
-        return LLMBehaviorEngine(client=client, model=model), "behavior-model"
+        return LLMPersonaEngine(client=client, model=model), "behavior-model"
 
     try:  # no dedicated endpoint — stand in with the general gateway, and say so
         general = make_llm_client()
         _log("behavior", persona.domain, f"{default_model()} (stand-in)")
-        return LLMBehaviorEngine(client=general, model=default_model()), "general-llm"
+        return LLMPersonaEngine(client=general, model=default_model()), "general-llm"
     except Exception:  # noqa: BLE001 - no model reachable at all
         _log("behavior", persona.domain, "stub")
-        return StubBehaviorEngine(), "stub"
+        return StubPersonaEngine(), "stub"

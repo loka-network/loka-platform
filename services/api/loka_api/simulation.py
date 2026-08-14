@@ -28,7 +28,7 @@ def actor_reactions(
     the behavior model is agreeable by construction, so it under-produces exactly the refusals
     and delays a simulation exists to surface; a reader must be able to tell which one answered.
     """
-    from loka_serving import Persona, behavior_for
+    from loka_serving import Persona, persona_engine_for
 
     actors: list[str] = getattr(engine, "actor_types", lambda: [])()[:max_actors]
     if not actors:
@@ -39,7 +39,7 @@ def actor_reactions(
     for name in actors:
         persona = Persona(name=name, domain=name.lower())
         try:
-            behavior, kind = behavior_for(persona)
+            behavior, kind = persona_engine_for(persona)
             action = behavior.act(
                 social_context=scenario_summary, persona=persona, history=[]
             )
