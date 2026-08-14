@@ -60,18 +60,72 @@ def test_an_exhausted_budget_is_retried_once_with_double() -> None:
     assert rec.budgets == [4000, 8000]      # doubled, not a bigger constant
 
 
-def test_a_second_empty_answer_is_reported_not_retried_forever() -> None:
+def test_the_budget_escalates_until_the_ceiling_then_reports(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Doubling once was not enough. A 4.8k-character domain document made a reasoning model
+    emit 33k characters of thought and no answer at a budget of 8000, so the request failed and
+    the caller was handed a fallback they had not asked for. The budget now climbs until the
+    model answers or the ceiling is reached — the ceiling being where to stop escalating, not a
+    target: a call that succeeds at the first budget never asks for more.
+    """
+    monkeypatch.setenv("LOKA_LLM_MIN_MAX_TOKENS", "1000")
+    monkeypatch.setenv("LOKA_LLM_MAX_TOKENS_CEILING", "8000")
+
     class _Always:
+        def __init__(self) -> None:
+            self.budgets: list[int] = []
+            self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
+
+        def _create(self, **kw: object) -> object:
+            self.budgets.append(int(kw["max_tokens"]))  # type: ignore[call-overload]
+            msg = SimpleNamespace(content="", reasoning_content="x" * 50)
+            return SimpleNamespace(choices=[SimpleNamespace(message=msg, finish_reason="length")])
+
+    rec = _Always()
+    with pytest.raises(EmptyCompletionError, match="ceiling=8000"):
+        OpenAICompatClient(client=rec).messages.create(model="m", max_tokens=1000, messages=[])
+    assert rec.budgets == [1000, 2000, 4000, 8000]  # doubling, and it stops at the ceiling
+
+
+def test_a_budget_that_works_is_not_escalated(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Escalation is a response to truncation, not a habit. Asking every model for the ceiling
+    would make every call cost what the worst call costs."""
+    monkeypatch.setenv("LOKA_LLM_MIN_MAX_TOKENS", "1000")
+
+    class _Answers:
+        def __init__(self) -> None:
+            self.budgets: list[int] = []
+            self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
+
+        def _create(self, **kw: object) -> object:
+            self.budgets.append(int(kw["max_tokens"]))  # type: ignore[call-overload]
+            msg = SimpleNamespace(content='{"ok": true}')
+            return SimpleNamespace(choices=[SimpleNamespace(message=msg, finish_reason="stop")])
+
+    rec = _Answers()
+    OpenAICompatClient(client=rec).messages.create(model="m", max_tokens=1000, messages=[])
+    assert rec.budgets == [1000]
+
+
+def test_an_empty_answer_that_was_not_truncated_is_not_retried(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """finish_reason=stop with no content means the model chose to say nothing. More tokens
+    will not change that, and retrying would turn one wasted call into several."""
+    monkeypatch.setenv("LOKA_LLM_MAX_TOKENS_CEILING", "32000")
+
+    class _Silent:
         def __init__(self) -> None:
             self.calls = 0
             self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
 
         def _create(self, **kw: object) -> object:
             self.calls += 1
-            msg = SimpleNamespace(content="", reasoning_content="x" * 50)
-            return SimpleNamespace(choices=[SimpleNamespace(message=msg, finish_reason="length")])
+            msg = SimpleNamespace(content="")
+            return SimpleNamespace(choices=[SimpleNamespace(message=msg, finish_reason="stop")])
 
-    rec = _Always()
-    with pytest.raises(EmptyCompletionError, match="after 2 attempt"):
+    rec = _Silent()
+    with pytest.raises(EmptyCompletionError, match="finish_reason=stop"):
         OpenAICompatClient(client=rec).messages.create(model="m", max_tokens=1000, messages=[])
-    assert rec.calls == 2
+    assert rec.calls == 1

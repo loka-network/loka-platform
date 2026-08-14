@@ -93,3 +93,41 @@ def test_a_data_built_draft_is_distinguishable_from_a_text_built_one() -> None:
     ).json()
     assert body["source"] == "data:rows"
     assert _build(client)["source"].startswith("builder:")
+
+
+def test_a_failed_model_build_is_reported_not_replaced_with_segmentation(
+    monkeypatch: Any,
+) -> None:
+    """The failure this rule exists for. A reasoning model spent its whole budget thinking and
+    returned nothing, so /build-kb quietly ran the rule-based builder instead — which splits
+    prose on capitalised words and produced twenty-four "entity types" including What, Two,
+    First, Everything and UnderBrazilian. That went into the lifecycle as an ordinary draft.
+
+    A caller who asked for a model and is handed sentence fragments cannot tell, from the
+    ontology alone, that anything went wrong; they will read it as what our extraction does.
+    Answering a different question than the one asked is worse than not answering.
+    """
+    monkeypatch.setenv("LOKA_LLM_BUILD", "1")
+
+    import loka_serving
+
+    def _explode(_purpose: str) -> Any:
+        raise RuntimeError("model returned no content after 4 attempts")
+
+    monkeypatch.setattr(loka_serving, "llm_for", _explode)
+
+    resp = TestClient(create_app()).post("/build-kb", json={"texts": [_TEXT]})
+    assert resp.status_code == 502
+    detail = resp.json()["detail"]
+    assert "no ontology was produced" in detail["error"]
+    assert "no content after 4 attempts" in detail["cause"]  # the real cause, not a summary
+    assert "LOKA_LLM_BUILD" in detail["note"]  # and how to ask for the other builder on purpose
+
+
+def test_the_rule_based_builder_is_still_available_when_asked_for(monkeypatch: Any) -> None:
+    """It is not being removed — it makes the pipeline runnable with no model at all. What
+    changed is that it is only used when it was requested."""
+    monkeypatch.delenv("LOKA_LLM_BUILD", raising=False)
+    body = _build(TestClient(create_app()))
+    assert body["builder"] == "keyword"
+    assert "not extraction" in body["provenance"]["method"]

@@ -38,6 +38,19 @@ def min_max_tokens() -> int:
         return 1024
 
 
+def max_tokens_ceiling() -> int:
+    """The largest budget the escalating retry will ask for.
+
+    How long a chain of thought runs is not knowable in advance and varies per call, so no
+    constant is the right budget — the question is only where to stop escalating. This is that
+    stopping point, not a target: a request that succeeds at 4k never asks for more.
+    """
+    try:
+        return int(os.getenv("LOKA_LLM_MAX_TOKENS_CEILING", "32000"))
+    except ValueError:
+        return 32000
+
+
 class EmptyCompletionError(RuntimeError):
     """The endpoint returned no content — typically the token budget went to reasoning."""
 
@@ -60,11 +73,17 @@ class _OpenAICompatMessages:
         msgs = ([{"role": "system", "content": system}] if system else []) + list(messages)
         budget = max(max_tokens, min_max_tokens())
 
-        # A reasoning model's chain of thought varies in length from call to call, so a budget
-        # that suffices for one request can be consumed entirely by the next — the answer comes
-        # back empty with finish_reason=length. Retrying once with a doubled budget adapts to
-        # that; raising the constant would only move the threshold at which it recurs.
-        for attempt in (1, 2):
+        # A reasoning model's chain of thought varies in length from call to call, and on a long
+        # document it can consume the whole budget before a single character of the answer is
+        # emitted — the reply comes back empty with finish_reason=length. Doubling once was not
+        # enough: a 4.8k-character domain text produced 33k characters of reasoning and still
+        # nothing at 8000. So the budget escalates until the model answers or the ceiling is
+        # reached, and only a length-truncated reply is retried; any other empty reply means
+        # something else is wrong and more tokens will not fix it.
+        ceiling = max_tokens_ceiling()
+        attempts = 0
+        while True:
+            attempts += 1
             resp = self._client.chat.completions.create(
                 model=model, max_tokens=budget, messages=msgs
             )
@@ -73,19 +92,20 @@ class _OpenAICompatMessages:
             if text.strip():
                 return SimpleNamespace(content=[SimpleNamespace(type="text", text=text)])
             finish = getattr(choice, "finish_reason", "?")
-            if attempt == 1 and finish == "length":
-                budget *= 2
+            if finish == "length" and budget < ceiling:
+                budget = min(budget * 2, ceiling)
                 continue
             # Distinguish "the model produced nothing usable" from "the JSON was malformed",
-            # so the operator sees the actual cause instead of a parse error.
+            # so the operator sees the actual cause instead of a parse error. The message names
+            # the variable to change, because the ceiling is the one thing a caller controls.
             reasoning = getattr(choice.message, "reasoning_content", None)
             raise EmptyCompletionError(
-                f"model {model} returned no content after {attempt} attempt(s) "
-                f"(finish_reason={finish}, budget={budget}"
+                f"model {model} returned no content after {attempts} attempt(s) "
+                f"(finish_reason={finish}, budget={budget}, ceiling={ceiling}"
                 + (f", {len(reasoning)} chars of reasoning" if reasoning else "")
-                + "); raise max_tokens or LOKA_LLM_MIN_MAX_TOKENS"
+                + "); raise LOKA_LLM_MAX_TOKENS_CEILING, or use a model that does not spend "
+                "the whole budget reasoning"
             )
-        raise AssertionError("unreachable")  # pragma: no cover
 
 
 class OpenAICompatClient:
