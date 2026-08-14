@@ -1,6 +1,6 @@
-# Loka 平台 monorepo 根配置。
-# 各 service 是独立可安装的包(见 services/*/pyproject.toml)。
-# 现阶段用 pip 逐个安装;规模变大后可切 uv workspace。
+# Root configuration for the Loka monorepo.
+# Each service is an independently installable package (see services/*/pyproject.toml);
+# they are installed one by one with pip, which is enough at this size.
 
 [tool.mypy]
 strict = true

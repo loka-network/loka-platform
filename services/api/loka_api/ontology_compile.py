@@ -35,7 +35,12 @@ from loka_schemas import (
 from loka_state import WorldState
 
 _T = datetime(2026, 1, 1, tzinfo=UTC)  # fixed → stable Eₜ snapshot hash across runs
-_CAUSAL_HINTS = ("影响", "导致", "决定", "affect", "cause", "impact", "lead", "drive", "produce")
+# Verbs that suggest a causal reading, in the languages an authored ontology may use. The
+# Chinese entries are deliberate: an ontology written in Chinese should be recognised too.
+_CAUSAL_HINTS = (
+    "影响", "导致", "决定",
+    "affect", "cause", "impact", "lead", "drive", "produce",
+)
 
 
 def _slug(name: str, fallback: str) -> str:
