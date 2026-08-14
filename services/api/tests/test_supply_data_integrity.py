@@ -69,17 +69,33 @@ def test_every_declared_relation_resolves_in_the_sample(
     data: dict[str, list[dict[str, object]]], engine: OntologyEngine
 ) -> None:
     """Each relation names the field it is walked by. A sample where that field points at rows
-    it does not contain makes multi-hop traversal fail while looking like missing data."""
+    it does not contain makes multi-hop traversal fail while looking like missing data.
+
+    Which side to check is decided by the cardinality, not by the direction the relation is
+    written in. The key lives on the "many" side: for Order --contains--> OrderItem the field is
+    on OrderItem, so what must hold is that every line belongs to an order — not that every
+    order has a line. Twenty-six orders in this sample have none, which is true of the source
+    data (cancelled and unavailable orders keep no lines) and is not a closure failure.
+    """
+    checked = 0
     for rel in engine.relations():
-        source, target, via = rel.from_type, rel.to_type, rel.via
-        if not via or source not in data or target not in data:
+        via = rel.via
+        if not via:
             continue
-        available = {r[via] for r in data[target] if via in r}
-        dangling = {r[via] for r in data[source] if r.get(via) not in available}
+        if rel.effective_cardinality.value == "one_to_many":
+            holder, referenced = rel.to_type, rel.from_type
+        else:
+            holder, referenced = rel.from_type, rel.to_type
+        if holder not in data or referenced not in data:
+            continue
+        available = {r[via] for r in data[referenced] if via in r}
+        dangling = {r[via] for r in data[holder] if r.get(via) not in available}
         assert not dangling, (
-            f"relation {rel.name} ({source} -{via}-> {target}) has {len(dangling)} values "
-            "with no matching row; the sample is not referentially closed"
+            f"relation {rel.name}: {len(dangling)} {holder}.{via} values have no matching "
+            f"{referenced}; the sample is not referentially closed"
         )
+        checked += 1
+    assert checked == 4, f"only {checked} relations were checked; the rest were skipped"
 
 
 def test_the_sample_is_large_enough_to_exercise_the_guard(

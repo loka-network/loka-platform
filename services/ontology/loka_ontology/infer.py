@@ -172,6 +172,10 @@ def to_yaml(ontology: Ontology) -> str:
                 "from": r.from_type,
                 "to": r.to_type,
                 "cardinality": r.effective_cardinality.value,
+                # The traversal key has to survive serialisation. A relation without ``via`` is
+                # declared but not walkable, so an inferred link would round-trip into an
+                # ontology that knows the two types are connected and cannot follow the edge.
+                **({"via": r.via} if r.via else {}),
             }
             for r in ontology.relations
         ]

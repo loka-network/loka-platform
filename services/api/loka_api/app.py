@@ -151,6 +151,18 @@ class BuildFromDataRequest(BaseModel):
     backing: str | None = None  # the table the rows came from, recorded on the entity
 
 
+class BuildFromTablesRequest(BaseModel):
+    """Several tables at once: ``{"tables": {"Order": [...], "OrderItem": [...]}}``.
+
+    One table can only ever yield one entity. What connects them — relations, the field each is
+    traversed by, cardinality, the subtype order — exists only across tables, so it needs all of
+    them in one call.
+    """
+
+    tables: dict[str, list[dict[str, Any]]]
+    backing: dict[str, str] | None = None  # entity type -> source table name
+
+
 class ImpactRequest(BaseModel):
     """Tighten an action's guard and ask what loses eligibility, and what that reaches."""
 
@@ -323,6 +335,43 @@ def create_app(world: World | None = None) -> FastAPI:
         rec = _store().create_draft(to_yaml(onto), source=f"data:{req.backing or 'rows'}")
         out = rec.as_dict()
         out["rows_sampled"] = len(req.rows)
+        return out
+
+    @app.post("/build-kb-from-tables")
+    def build_kb_from_tables(req: BuildFromTablesRequest) -> dict[str, Any]:
+        """Derive a draft ontology from several tables — including what connects them.
+
+        The single-table route proposes one entity and stops. Relations, the field each is
+        walked by, cardinalities and the subtype order live between tables, and they are the part
+        of Ω that makes it more than a schema. They are also decidable: a relation is proposed
+        because one column's values are contained in another table's primary key, which is a fact
+        that can be counted rather than a judgement that can be hallucinated.
+
+        The response carries the evidence for every proposal — how many values resolved out of
+        how many, how many were distinct, what the name similarity was — and the list of things
+        this method cannot reach at all. Verbs, constraints, actions, guards and norms are
+        decisions, not observations; a reviewer supplies them, and the draft says so rather than
+        leaving their absence to be discovered later.
+        """
+        from loka_ontology.infer import to_yaml
+        from loka_ontology.infer_tables import infer_ontology_from_tables
+
+        if not req.tables:
+            raise HTTPException(status_code=400, detail="no tables provided")
+        empty = sorted(name for name, rows in req.tables.items() if not rows)
+        if empty:
+            raise HTTPException(status_code=400, detail=f"tables with no rows: {empty}")
+        try:
+            onto, report = infer_ontology_from_tables(req.tables, backing=req.backing)
+        except Exception as exc:  # noqa: BLE001 - a malformed sample is a client error
+            raise HTTPException(status_code=400, detail=f"could not infer: {exc}") from exc
+
+        rec = _store().create_draft(
+            to_yaml(onto), source=f"tables:{','.join(sorted(req.tables))}"
+        )
+        out = rec.as_dict()
+        out["tables_read"] = {name: len(rows) for name, rows in req.tables.items()}
+        out["inference"] = report.as_dict()
         return out
 
     @app.get("/ontology")

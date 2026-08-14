@@ -12,6 +12,7 @@ from .builder import (
     OntologyDraft,
     build,
 )
+from .compare import OntologyComparison, compare_ontologies, grounding_checklist
 from .engine import BindingCheck, OntologyEngine
 from .infer import (
     guess_primary_key,
@@ -20,6 +21,12 @@ from .infer import (
     infer_from_adapter,
     infer_ontology_from_rows,
     to_yaml,
+)
+from .infer_tables import (
+    InferenceReport,
+    LinkEvidence,
+    SubtypeEvidence,
+    infer_ontology_from_tables,
 )
 from .loader import OntologyLoadError, load_ontology, load_ontology_str
 from .model import (
@@ -55,6 +62,13 @@ __all__ = [
     "OntologyLoadError",
     "infer_ontology_from_rows",
     "infer_from_adapter",
+    "infer_ontology_from_tables",
+    "InferenceReport",
+    "LinkEvidence",
+    "SubtypeEvidence",
+    "compare_ontologies",
+    "OntologyComparison",
+    "grounding_checklist",
     "infer_entity_type",
     "infer_base_type",
     "guess_primary_key",

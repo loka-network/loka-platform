@@ -46,6 +46,16 @@ class OntologyEngine:
     def version(self) -> str:
         return self._onto.version
 
+    @property
+    def ontology(self) -> Ontology:
+        """The Ω this engine was built from.
+
+        The engine answers questions *about* Ω; comparing two ontologies is a question about the
+        pair, which belongs neither to one engine nor the other. Exposing the loaded object is
+        the honest way to serve that, rather than leaving callers to reach past the interface.
+        """
+        return self._onto
+
     # ---- entity / subtype (⪯) queries ----
 
     def has_entity(self, name: str) -> bool:

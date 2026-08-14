@@ -99,7 +99,15 @@ def load_supply_dataset(engine: Any | None = None) -> dict[str, list[dict[str, A
     if not directory or not os.path.isdir(directory):
         return {k: [dict(r) for r in v] for k, v in _SAMPLE.items()}
 
-    types = engine.entity_types() if engine is not None else list(_SAMPLE)
+    # With an engine, Ω decides what an entity is and therefore what to read. Without one, read
+    # what is on disk — the fallback used to be the keys of the tiny in-file sample, which
+    # silently dropped every CSV that sample happens not to mention. OrderItem was one of them,
+    # so a caller with no engine received five of the six tables and no indication of the sixth.
+    types = (
+        engine.entity_types()
+        if engine is not None
+        else sorted(f[:-4] for f in os.listdir(directory) if f.endswith(".csv"))
+    )
     data: dict[str, list[dict[str, Any]]] = {}
     for entity in types:
         path = os.path.join(directory, f"{entity}.csv")
