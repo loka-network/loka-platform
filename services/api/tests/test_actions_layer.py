@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from fastapi.testclient import TestClient
 from lifecycle import publish_built_ontology
 from loka_api.app import create_app
@@ -44,3 +46,30 @@ def test_built_kb_without_actions_has_none() -> None:
     # a text-built ontology has no action types yet -> no proposals, reported honestly
     assert body["actions"] == []
     assert body["stages"]["action"] == "none"
+
+
+def test_an_action_the_typing_constraints_forbid_is_blocked_not_proposed() -> None:
+    """Ω's constraints (C) say which entity types a verb may act on. An action outside them is
+    not a governance call to weigh — it is not expressible, and proposing it would be theatre."""
+    from loka_api.actions import propose_actions
+    from loka_ontology import OntologyEngine, load_ontology_str
+
+    onto = load_ontology_str(
+        "version: t\n"
+        "entities:\n  - {type: Seller}\n  - {type: Product}\n  - {type: Customer}\n"
+        "verbs:\n  - {name: SHIP, class: factual}\n"
+        # SHIP may act on Product only
+        "constraints:\n  - {verb: SHIP, agent_must_be: Seller, target_must_be: [Product]}\n"
+        "actions:\n"
+        "  - {name: ShipIt,    verb: SHIP, target: Product}\n"
+        "  - {name: ShipACustomer, verb: SHIP, target: Customer}\n"   # not permitted by C
+    )
+    world = SimpleNamespace(engine=OntologyEngine(onto))
+    wqt = SimpleNamespace(
+        state_package=SimpleNamespace(state_slice={}), hard_constraints=()
+    )
+    by_name = {p.action_name: p for p in propose_actions(world, wqt)}  # type: ignore[arg-type]
+
+    assert by_name["ShipIt"].blocked_by is None
+    assert by_name["ShipACustomer"].status == "blocked"
+    assert "type_constraint" in (by_name["ShipACustomer"].blocked_by or "")

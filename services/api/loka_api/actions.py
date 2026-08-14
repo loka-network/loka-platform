@@ -56,10 +56,24 @@ def propose_actions(world: Any, wqt: ScenarioWorldModel) -> list[ActionProposal]
     action_types = getter() if callable(getter) else []
     state = dict(wqt.state_package.state_slice)
 
+    check = getattr(world.engine, "check_binding", None)
+
     proposals: list[ActionProposal] = []
     for a in action_types:
         guard_status = _eval_guard(a.guard, state)
         blocked = _blocked_by(a.verb, a.target, wqt.hard_constraints)
+
+        # Ω's typing constraints (C) say which entity types a verb may act on at all. An action
+        # whose target the constraints do not permit is not a governance decision to weigh — it
+        # is not expressible, and proposing it and then refusing it later would be theatre.
+        if blocked is None and callable(check):
+            for actor in getattr(world.engine, "actor_types", lambda: [])() or [a.target]:
+                verdict = check(a.verb, actor, a.target)
+                if verdict.ok:
+                    break
+            else:
+                blocked = f"type_constraint: {verdict.reason}"
+
         status = "blocked" if (blocked or guard_status == "not_satisfied") else "proposed"
         proposals.append(
             ActionProposal(
