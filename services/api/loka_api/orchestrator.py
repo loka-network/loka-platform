@@ -111,8 +111,14 @@ def _make_proposer(entity_types: list[str]) -> tuple[QueryProposer, str]:
                 model=model_for("grounding"),
             )
             return proposer, "llm"
-        except Exception:
-            pass  # fall through to the deterministic reference proposer
+        except Exception as exc:  # noqa: BLE001 - degrade, but say why
+            # The operator asked for the model proposer, so falling back to the deterministic
+            # one is a downgrade they need to see: a silent switch would make a run that used a
+            # different proposer indistinguishable from one that used the requested one.
+            return (
+                KeywordProposer(entity_types=entity_types),
+                f"keyword (LLM proposer requested but unavailable: {type(exc).__name__}: {exc})",
+            )
     return KeywordProposer(entity_types=entity_types), "keyword"
 
 

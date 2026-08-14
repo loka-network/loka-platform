@@ -59,7 +59,7 @@ def main() -> None:
     world = world_from_kbspec(spec)
     ingest_data(world, DATA)
     ingest_causal(world, CAUSAL)
-    print("\n(ingested %d data rows, %d causal claims)" % (len(DATA), len(CAUSAL)))
+    print(f"\n(ingested {len(DATA)} data rows, {len(CAUSAL)} causal claims)")
 
     # B · Workflow B — answer questions against the built + ingested KB.
     for qid, question in QUESTIONS:

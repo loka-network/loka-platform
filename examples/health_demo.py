@@ -60,8 +60,10 @@ def main() -> None:
             panel, outcome=OUTCOME, dial=DIAL, controls=CONTROLS, target=target,
             new_dial=n, log_cols=LOG,
         )
-        nv = f"{naive['projected_outcome']:.1f}  [{naive['interval_95'][0]:.0f},{naive['interval_95'][1]:.0f}]"
-        cv = f"{ctrl['projected_outcome']:.1f}  [{ctrl['interval_95'][0]:.0f},{ctrl['interval_95'][1]:.0f}]"
+        n_lo, n_hi = naive["interval_95"]
+        nv = f"{naive['projected_outcome']:.1f}  [{n_lo:.0f},{n_hi:.0f}]"
+        c_lo, c_hi = ctrl["interval_95"]
+        cv = f"{ctrl['projected_outcome']:.1f}  [{c_lo:.0f},{c_hi:.0f}]"
         print(f"   {n:>8.0f} | {nv:>24} | {cv:>30}")
 
     print(

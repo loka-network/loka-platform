@@ -9,6 +9,8 @@ dependencies = [
     "loka-state",
     "loka-causal",
     "loka-compiler",
+    "loka-grounding",
+    "loka-serving",
     "fastapi>=0.110",
     "uvicorn>=0.29",
 ]

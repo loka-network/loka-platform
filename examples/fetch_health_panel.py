@@ -35,7 +35,8 @@ def _indicator(code: str) -> dict[tuple[str, str], float]:
 
 
 def _real_countries() -> dict[str, str]:
-    data = json.loads(urllib.request.urlopen(f"{_BASE}/country?format=json&per_page=400", timeout=60).read())
+    url = f"{_BASE}/country?format=json&per_page=400"
+    data = json.loads(urllib.request.urlopen(url, timeout=60).read())
     return {c["id"]: c["name"] for c in data[1] if c.get("region", {}).get("value") != "Aggregates"}
 
 
@@ -50,7 +51,8 @@ def main() -> None:
     rows = []
     for iso, yr in keys:
         if iso in real:
-            rows.append([iso, real[iso], int(yr)] + [round(series[n][(iso, yr)], 3) for n, _ in COLS])
+            values = [round(series[n][(iso, yr)], 3) for n, _ in COLS]
+            rows.append([iso, real[iso], int(yr)] + values)
     rows.sort(key=lambda r: (r[0], r[2]))
 
     out = os.path.join(os.path.dirname(__file__), "health_panel.csv")

@@ -23,9 +23,11 @@ jobs:
           pip install -e "services/causal[dev,neo4j]"
           pip install -e "services/knowledge[dev]"
           pip install -e "services/compiler[dev]"
+          pip install -e "services/grounding[dev]"
+          pip install -e "services/serving[dev]"
           pip install -e "services/api[dev]"
       - name: Lint (ruff)
-        run: ruff check libs services
+        run: ruff check libs services examples scripts
       - name: Type check (mypy --strict)
         # One invocation over all package source roots so cross-package imports
         # (editable installs) resolve; per-package invocations cannot see siblings.
@@ -38,6 +40,8 @@ jobs:
           services/causal/loka_causal
           services/knowledge/loka_knowledge
           services/compiler/loka_compiler
+          services/grounding/loka_grounding
+          services/serving/loka_serving
           services/api/loka_api
           examples/end_to_end_demo.py
       - name: Test
