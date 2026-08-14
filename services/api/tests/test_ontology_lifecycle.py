@@ -185,3 +185,43 @@ def test_publishing_rebinds_the_world_to_the_reviewed_ontology() -> None:
     ]}).json()
     assert body["data_ingested"] == 1
     assert body["data_rejected"] == []
+
+
+_ROWS = [
+    {"seller_id": "s1", "seller_state": "SP", "on_time_rate": 0.91, "joined": "2018-03-01"},
+    {"seller_id": "s2", "seller_state": "RJ", "on_time_rate": 0.74, "joined": "2019-06-11"},
+]
+
+
+def test_an_ontology_can_begin_from_data_and_enters_the_same_lifecycle() -> None:
+    """Most customers have tables, not a document describing their domain. What is inferred from
+    values is a guess, so it is a draft like any other — no authority until a person publishes."""
+    client = TestClient(create_app())
+    body = client.post(
+        "/build-kb-from-data",
+        json={"entity_type": "Seller", "backing": "sellers_table", "rows": _ROWS},
+    ).json()
+
+    assert body["state"] == "draft"
+    assert body["can_authorize_answers"] is False
+    assert body["source"] == "data:sellers_table"
+    assert "backing: sellers_table" in body["ontology_yaml"]   # where the rows came from
+    assert "type: double" in body["ontology_yaml"]             # inferred from the values
+    assert body["review"], "inference leaves decisions a machine reading data cannot settle"
+
+
+def test_inference_guesses_and_the_checklist_is_where_that_is_caught() -> None:
+    """`joined` holds dates and is inferred as text. The guess is not hidden: it is a draft, and
+    review is the step that corrects it."""
+    client = TestClient(create_app())
+    body = client.post(
+        "/build-kb-from-data", json={"entity_type": "Seller", "rows": _ROWS}
+    ).json()
+    assert "name: joined\n    type: string" in body["ontology_yaml"]   # the wrong guess, visible
+    assert body["state"] == "draft"                                    # and not authoritative
+
+
+def test_building_from_no_rows_is_refused() -> None:
+    client = TestClient(create_app())
+    resp = client.post("/build-kb-from-data", json={"entity_type": "Seller", "rows": []})
+    assert resp.status_code == 400

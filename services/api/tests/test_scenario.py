@@ -40,3 +40,12 @@ def test_method_spec_rejects_missing_entity() -> None:
 
     with pytest.raises(ValueError, match="no entity"):
         method_spec(_Engine())
+
+
+def test_methods_endpoint_shows_the_other_half_of_the_kb() -> None:
+    """A query is refused when it names a method KB.METHODS does not hold, so what it holds has
+    to be discoverable — otherwise the only way to learn the boundary is to hit it."""
+    body = TestClient(create_app()).get("/methods").json()
+    assert any(m["name"] == "causal_effect" for m in body["dispatch"])
+    assert all({"name", "in_types", "out_type"} <= m.keys() for m in body["dispatch"])
+    assert body["registered"] == []   # nothing has needed registering yet in a fresh process

@@ -77,7 +77,8 @@ def test_wdi_mapping_skips_missing() -> None:
     rows = collect(a.query(pred, session("Outcome")))
     assert [r.values["as_of"] for r in rows] == ["2020", "2022"]  # 2021 (null) skipped
     assert rows[-1].values["value"] == 47.8
-    assert rows[0].values["id"] == "EG.ELC.ACCS.ZS:2020"
+    assert rows[0].values["id"] == "ZMB:EG.ELC.ACCS.ZS:2020"
+    assert rows[0].values["country"] == "ZMB"   # a panel must know whose row it is
 
 
 def test_scope_enforced() -> None:

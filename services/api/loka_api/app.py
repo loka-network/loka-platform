@@ -143,6 +143,14 @@ class OntologyPublishRequest(BaseModel):
     version: str
 
 
+class BuildFromDataRequest(BaseModel):
+    """Sample rows posted to /build-kb-from-data: derive a draft ontology from existing data."""
+
+    entity_type: str
+    rows: list[dict[str, Any]]
+    backing: str | None = None  # the table the rows came from, recorded on the entity
+
+
 class ImpactRequest(BaseModel):
     """Tighten an action's guard and ask what loses eligibility, and what that reaches."""
 
@@ -288,6 +296,33 @@ def create_app(world: World | None = None) -> FastAPI:
         out["review"] = rec.review  # what a human must decide before this can be published
         if build_note:
             out["build_note"] = build_note  # why the LLM path was skipped, if it was
+        return out
+
+    @app.post("/build-kb-from-data")
+    def build_kb_from_data(req: BuildFromDataRequest) -> dict[str, Any]:
+        """Derive a draft ontology from existing rows — the other way an ontology begins.
+
+        Not every customer has a document describing their domain; most have tables. This reads
+        sample rows and proposes an entity type with one typed property per column, recording the
+        table it came from. What it infers from values is a guess — a date column read as text,
+        a numeric code read as a number — so it enters the same lifecycle as a text-built
+        ontology: a draft, with the review checklist naming what a machine reading data cannot
+        settle, and no authority over an answer until a person publishes it.
+        """
+        from loka_ontology.infer import infer_ontology_from_rows, to_yaml
+
+        if not req.rows:
+            raise HTTPException(status_code=400, detail="no rows provided")
+        try:
+            onto = infer_ontology_from_rows(
+                req.entity_type, req.rows, backing=req.backing
+            )
+        except Exception as exc:  # noqa: BLE001 - a malformed sample is a client error
+            raise HTTPException(status_code=400, detail=f"could not infer: {exc}") from exc
+
+        rec = _store().create_draft(to_yaml(onto), source=f"data:{req.backing or 'rows'}")
+        out = rec.as_dict()
+        out["rows_sampled"] = len(req.rows)
         return out
 
     @app.get("/ontology")
@@ -485,6 +520,29 @@ def create_app(world: World | None = None) -> FastAPI:
             "data": kb.facts(),                          # actual world
             "all_facts": kb.facts(all_scenarios=True),   # + counterfactual worlds
             "methods": [
+                {"name": m.name, "in_types": list(m.in_types), "out_type": m.out_type}
+                for m in kb.methods.values()
+            ],
+        }
+
+    @app.get("/methods")
+    def methods_endpoint() -> dict[str, Any]:
+        """What the system can compute — the other half of the knowledge base.
+
+        A query is dispatched to KB.DATA or KB.METHODS, and one that names a method the KB does
+        not hold is refused. ``GET /kb`` shows the facts; without this, the method half was only
+        discoverable by asking for something and being told no.
+
+        ``dispatch`` methods are those the typed-query path applies. ``registered`` are those the
+        speech-act KB holds in this process; a method appears there once a request has caused it
+        to be registered, so an empty list means none has been needed yet, not that none exists.
+        """
+        from .methods import method_catalog
+
+        kb = app.state.kb
+        return {
+            "dispatch": method_catalog(),
+            "registered": [
                 {"name": m.name, "in_types": list(m.in_types), "out_type": m.out_type}
                 for m in kb.methods.values()
             ],

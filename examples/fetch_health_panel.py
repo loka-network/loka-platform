@@ -3,15 +3,24 @@
 Pulls 8 WDI indicators (2000-2023) for all real countries, keeps complete-case rows, and writes
 examples/health_panel.csv. Re-run to refresh. No API key needed.
 
+Reads through ``WorldBankAdapter`` rather than calling the API directly: the adapter is the
+scoped, read-only, lineage-tagging path every other source goes through, and a second hand-rolled
+fetch beside it would be a second thing to keep correct. Each row it returns carries where it
+came from and when.
+
     python examples/fetch_health_panel.py
 """
 
 from __future__ import annotations
 
+import asyncio
 import csv
 import json
 import os
 import urllib.request
+
+from loka_adapters import WorldBankAdapter
+from loka_schemas import Certificate, TypedPredicate
 
 # column name -> World Bank indicator code
 COLS = [
@@ -27,11 +36,21 @@ COLS = [
 _BASE = "https://api.worldbank.org/v2"
 
 
-def _indicator(code: str) -> dict[tuple[str, str], float]:
-    url = f"{_BASE}/country/all/indicator/{code}?format=json&per_page=20000&date=2000:2023"
-    data = json.loads(urllib.request.urlopen(url, timeout=60).read())
-    rows = data[1] or []
-    return {(r["countryiso3code"], r["date"]): r["value"] for r in rows if r["value"] is not None}
+async def _indicator(code: str) -> dict[tuple[str, str], float]:
+    """One indicator for every country, read through the adapter."""
+    # a whole-panel pull is tens of thousands of rows; 30s is sized for one country
+    adapter = WorldBankAdapter(adapter_id="worldbank", timeout=180.0)
+    session = await adapter.authenticate(
+        Certificate(subject="panel-build", scopes=frozenset({"Outcome"}))
+    )
+    predicate = TypedPredicate(
+        "Outcome",
+        {"country": "all", "indicator": code, "date": "2000:2023", "per_page": 20000},
+    )
+    return {
+        (str(row.values["country"]), str(row.values["as_of"])): float(row.values["value"])
+        async for row in adapter.query(predicate, session)
+    }
 
 
 def _real_countries() -> dict[str, str]:
@@ -42,7 +61,7 @@ def _real_countries() -> dict[str, str]:
 
 def main() -> None:
     real = _real_countries()
-    series = {name: _indicator(code) for name, code in COLS}
+    series = {name: asyncio.run(_indicator(code)) for name, code in COLS}
 
     keys = set(series[COLS[0][0]])
     for name, _ in COLS[1:]:

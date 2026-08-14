@@ -26,9 +26,9 @@ _WDI_URL = "https://api.worldbank.org/v2/country/{country}/indicator/{indicator}
 Fetch = Callable[[str], object]  # url -> parsed JSON
 
 
-def _http_get_json(url: str) -> object:
+def _http_get_json(url: str, timeout: float = 30.0) -> object:
     req = urllib.request.Request(url, headers={"User-Agent": "loka-adapter/0.1"})
-    with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310 (trusted public API)
+    with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 (trusted public API)
         return json.load(resp)
 
 
@@ -44,9 +44,12 @@ class WorldBankAdapter:
         *,
         fetch: Fetch | None = None,
         now: Callable[[], datetime] | None = None,
+        timeout: float = 30.0,
     ) -> None:
+        """``timeout`` bounds one HTTP read. A whole-panel pull returns tens of thousands of rows
+        and needs longer than a single-country one, so the caller that knows the size sets it."""
         self._adapter_id = adapter_id
-        self._fetch = fetch or _http_get_json
+        self._fetch = fetch or (lambda url: _http_get_json(url, timeout))
         self._now = now or (lambda: datetime.now(UTC))
 
     async def authenticate(self, cert: Certificate) -> Session:
@@ -112,8 +115,17 @@ class WorldBankAdapter:
         indicator = str(f.get("indicator", ""))
         if not indicator:
             raise AdapterError("Outcome query needs an 'indicator' filter (e.g. EG.ELC.ACCS.ZS)")
-        url = _WDI_URL.format(country=str(f.get("country", "ZMB")), indicator=indicator)
-        params = {"format": "json", "date": str(f.get("date", "2010:2022"))}
+        # ``country`` accepts an ISO3 code or "all"; the API paginates, and its default page is
+        # small enough that a multi-country pull would silently truncate, so the page size is
+        # explicit. The country is carried on each row: without it a panel spanning countries
+        # cannot tell whose observation it is holding.
+        country = str(f.get("country", "ZMB"))
+        url = _WDI_URL.format(country=country, indicator=indicator)
+        params = {
+            "format": "json",
+            "date": str(f.get("date", "2010:2022")),
+            "per_page": str(f.get("per_page", 20000 if country == "all" else 100)),
+        }
         data = self._fetch(f"{url}?{urllib.parse.urlencode(params)}")
         if not isinstance(data, list) or len(data) < 2 or not isinstance(data[1], list):
             return []
@@ -123,11 +135,13 @@ class WorldBankAdapter:
             if not isinstance(r, dict) or r.get("value") is None:
                 continue
             year = str(r.get("date"))
+            iso3 = str(r.get("countryiso3code") or "").strip()
             rows.append(
                 TypedRow(
                     entity_type="Outcome",
                     values={
-                        "id": f"{indicator}:{year}",
+                        "id": f"{iso3 or country}:{indicator}:{year}",
+                        "country": iso3 or country,
                         "indicator_code": indicator,
                         "value": float(r["value"]),
                         "as_of": year,
