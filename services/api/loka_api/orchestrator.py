@@ -52,6 +52,13 @@ def answer(world: World, question: str, *, query_id: str) -> dict[str, Any]:
     actions = propose_actions(world, wqt)
     has_causal_claims = bool(wqt.causal_slice and wqt.causal_slice.claims)
 
+    # An answer resting on a claim whose sources disagree beyond sampling error is not the same
+    # as one whose sources agree, and the pooled estimate alone cannot show the difference.
+    from .ingest import contradictions_for
+
+    cited = [c.claim_id for c in wqt.causal_slice.claims] if wqt.causal_slice else []
+    disagreements = contradictions_for(world, cited)
+
     return {
         "query_id": query_id,
         "question": question,
@@ -61,11 +68,13 @@ def answer(world: World, question: str, *, query_id: str) -> dict[str, Any]:
         "scenarios": jsonable_encoder(scenarios),
         "decision": jsonable_encoder(memo),
         "actions": jsonable_encoder(actions),
+        "evidence_conflicts": disagreements,
         "stages": {
             "grounding": grounding_mode,
             "query_dispatch": "real",
             "compiler": "real",
             "causal": "real" if world.causal is not None else "empty",
+            "evidence": ("conflicted" if disagreements else "consistent") if cited else "none",
             "simulation": "basic" if has_causal_claims else "stub",
             "policy": "basic",
             "action": "basic" if actions else "none",

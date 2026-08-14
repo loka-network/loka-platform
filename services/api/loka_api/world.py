@@ -43,6 +43,10 @@ class World:
     state: StateStore
     mission: MissionProfile
     causal: CausalSlicer | None = None
+    # Kt — the evidence behind the causal claims. Populated by ingestion; kept beside Γ rather
+    # than inside it, because a pooled estimate and the disagreement it papers over are two
+    # different things a reader may need.
+    knowledge: object | None = None
     backend: str = "in-memory"
 
 
