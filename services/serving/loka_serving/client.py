@@ -55,6 +55,12 @@ class EmptyCompletionError(RuntimeError):
     """The endpoint returned no content — typically the token budget went to reasoning."""
 
 
+class TruncatedCompletionError(RuntimeError):
+    """The reply was cut off by the token budget. Kept distinct from an empty one because the
+    remedies differ: an empty reply means the reasoning consumed everything, a truncated one
+    means the answer itself did not fit."""
+
+
 class _OpenAICompatMessages:
     """Adapts an OpenAI-compatible chat endpoint to the Anthropic ``messages.create`` shape."""
 
@@ -89,19 +95,35 @@ class _OpenAICompatMessages:
             )
             choice = resp.choices[0]
             text = choice.message.content or ""
-            if text.strip():
-                return SimpleNamespace(content=[SimpleNamespace(type="text", text=text)])
             finish = getattr(choice, "finish_reason", "?")
+
+            # ``length`` means the budget ran out, and it means that whether or not anything was
+            # emitted first. A half-written reply is the more dangerous half of that: it looks
+            # like an answer, so it used to be returned, and the caller met it as a parse error
+            # pointing at whatever character the model happened to stop on — a message about
+            # JSON syntax for a problem that has nothing to do with syntax.
             if finish == "length" and budget < ceiling:
                 budget = min(budget * 2, ceiling)
                 continue
-            # Distinguish "the model produced nothing usable" from "the JSON was malformed",
-            # so the operator sees the actual cause instead of a parse error. The message names
-            # the variable to change, because the ceiling is the one thing a caller controls.
+            if text.strip() and finish != "length":
+                return SimpleNamespace(content=[SimpleNamespace(type="text", text=text)])
+
             reasoning = getattr(choice.message, "reasoning_content", None)
+            where = f"budget={budget}, ceiling={ceiling}"
+            if text.strip():
+                # Truncated at the ceiling. Say so, and show where it stopped: a reader can tell
+                # a cut-off structure from a model that was answering the wrong question.
+                raise TruncatedCompletionError(
+                    f"model {model} was still truncated at the ceiling after {attempts} "
+                    f"attempt(s) ({where}, {len(text)} chars returned"
+                    + (f", {len(reasoning)} chars of reasoning" if reasoning else "")
+                    + f"); the reply ends: ...{text[-160:]!r}. Raise "
+                    "LOKA_LLM_MAX_TOKENS_CEILING, shorten the input, or ask for less output"
+                )
+            # Nothing at all came back: the budget went entirely to the chain of thought.
             raise EmptyCompletionError(
                 f"model {model} returned no content after {attempts} attempt(s) "
-                f"(finish_reason={finish}, budget={budget}, ceiling={ceiling}"
+                f"(finish_reason={finish}, {where}"
                 + (f", {len(reasoning)} chars of reasoning" if reasoning else "")
                 + "); raise LOKA_LLM_MAX_TOKENS_CEILING, or use a model that does not spend "
                 "the whole budget reasoning"

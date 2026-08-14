@@ -53,6 +53,11 @@ _BASE_TYPE = {
 _VERB_CLASS = {"factual", "communicative", "institutional"}
 
 
+class OntologyBuildError(RuntimeError):
+    """The model replied, but not with an ontology this can read. Carries what came back: a
+    decision about a prompt or a token budget cannot be made from a character offset."""
+
+
 @dataclass(frozen=True)
 class EntityDraft:
     """A proposed entity type: name + optional supertype + typed attributes."""
@@ -188,7 +193,29 @@ class LLMBuilder:
             getattr(b, "text", "") for b in resp.content if getattr(b, "type", "") == "text"
         )
         start, end = text.find("{"), text.rfind("}")
-        obj: dict[str, Any] = json.loads(text[start : end + 1]) if start != -1 else {}
+        if start == -1:
+            raise OntologyBuildError(
+                f"the model returned no JSON object ({len(text)} chars): {text[:200]!r}"
+            )
+        # A reply cut off before any closing brace has no ``end``, and slicing to it would give
+        # the empty string — an error report showing nothing, in the one case where seeing the
+        # text is the whole point. Take the tail instead.
+        candidate = text[start : end + 1] if end > start else text[start:]
+        try:
+            obj: dict[str, Any] = json.loads(candidate)
+        except json.JSONDecodeError as exc:
+            # A cut-off reply and a malformed one both arrive here, and a bare decoder message
+            # names a character position in text the operator never sees — which reads as "the
+            # model writes bad JSON" when the usual cause is that it was not allowed to finish.
+            # The two are told apart by whether the braces balance, and the text is shown either
+            # way, because a decision about a prompt cannot be made from an offset.
+            truncated = candidate.count("{") > candidate.count("}")
+            raise OntologyBuildError(
+                ("the model's reply was cut off mid-JSON" if truncated
+                 else "the model returned malformed JSON")
+                + f" at char {exc.pos} of {len(candidate)} ({exc.msg}). "
+                + f"It ends: ...{candidate[-200:]!r}"
+            ) from exc
 
         entities: list[EntityDraft] = []
         for e in obj.get("entities", []):

@@ -9,6 +9,7 @@ from .builder import (
     KeywordBuilder,
     LLMBuilder,
     OntologyBuilder,
+    OntologyBuildError,
     OntologyDraft,
     build,
 )
@@ -53,6 +54,7 @@ __all__ = [
     "LLMBuilder",
     "OntologyBuilder",
     "OntologyDraft",
+    "OntologyBuildError",
     "EntityDraft",
     "SouffleTypeChecker",
     "SouffleUnavailable",
