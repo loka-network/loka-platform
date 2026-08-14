@@ -9,6 +9,23 @@ behaviour, enterprise knowledge, and human objectives into one runnable model �
 counterfactual simulation, calibrated forecasting, and auditable decision support. Customer
 data never leaves the customer's environment.
 
+> **What this document is.** The sections below describe the design the platform is being built
+> toward. Parts of it are running and tested; parts are not yet written. Rather than qualify
+> every sentence, the split is stated once, here:
+>
+> **Built and tested** — the ontology Ω with its consistency rules; query grounding and typed
+> refusal; relation traversal (routes derived from Ω, not hand-written joins); the ontology
+> review lifecycle (draft → validated → published); provenance separation of observations from
+> computed values; the replayable audit hash; the provider-agnostic model gateway; read-only
+> data adapters.
+>
+> **Designed, not built** — planning; the multi-agent simulation of named stakeholders; the
+> four governance gates as a distinct layer; the semantic remainder of CΩ; execution of an
+> action's effect against world state.
+>
+> `docs/loka_technical_design.md` carries the detail, including what each guarantee rests on
+> and what is explicitly *not* guaranteed.
+
 ## The problem
 
 Macro-financial decisions are not forecasting problems. A central bank weighing a rate move,
@@ -30,8 +47,9 @@ under the audit discipline a regulator would demand of a published policy memo.
 ## Approach
 
 - **Causal-first, not document-first.** Every quantitative claim resolves to a typed causal
-  record with an effect distribution, an identification status, and evidence. Downstream use
-  is gated by an explicit admissibility matrix; a free-text assertion is never admitted.
+  record with an effect distribution, an identification status, and evidence; a free-text
+  assertion is never admitted. An admissibility matrix is implemented in `services/causal` and
+  is not yet wired into the query path.
 - **Multi-agent simulation of named stakeholders.** Scenarios play out in a virtual
   environment of archetypes calibrated to real institutions; adversarial moves are
   first-class.
@@ -88,7 +106,11 @@ Independently deployable logical services with typed, versioned interfaces:
 | `state` | Live world state `Eₜ`; ingestion from read-only adapters |
 | `adapters` | Read-only, scope-bound data access (data stays in place) |
 | `compiler` | Binds `Ω + Eₜ + Γ(q) + mission` into `W(q, t)` |
-| `mission` | The customer-signed mandate, welfare, constraints, authority |
+| `serving` | Model gateway (provider-agnostic) and the behavior-engine port |
+| `api` | HTTP surface and orchestration |
+
+The mission profile — the customer-signed mandate, welfare, constraints and authority — is a
+contract in `libs/loka-schemas`; it has no service of its own yet.
 
 Model **training** (forecasting and decision models) lives in the separate `loka-models`
 repository and integrates through a model registry.
@@ -96,26 +118,31 @@ repository and integrates through a model registry.
 ## Repository layout
 
 ```text
-libs/loka-schemas/     Shared contracts (typed data, adapter, mission, causal, W(q,t))
+libs/loka-schemas/     Shared contracts and the protocols services are written against
 services/
-  ontology/            Ontology engine Ω
+  ontology/            Ontology engine Ω, its consistency rules, route search and traversal
   adapters/            Read-only typed data adapters
   state/               World-state service Eₜ
-  mission/             Mission Profile
   compiler/            World Model Compiler → W(q, t)
   causal/              Causal knowledge graph Γ + admissibility
   knowledge/           Evidence & provenance layer Kt
   grounding/           Semantic grounding & admission
-  manager/ society/ consensus/   Planning, simulation, consensus
-  gates/ serving/      Governance gates; model serving endpoints
-storage/               Unified typed query layer
+  serving/             Model gateway and the behavior-engine port
+  api/                 HTTP surface and orchestration
 infra/                 Deployment / CI
+examples/              Ontologies, data-build scripts, runnable demos
+
+Directories reserved for services that are designed but not yet written — `manager/`,
+`society/`, `consensus/`, `gates/`, `mission/`, `causal_pipeline/`, `storage/` — are empty
+and are listed here so a name in the tree is never mistaken for a component.
 ```
 
 ## Governance & deployment
 
-- **Four gates** enforce declared properties at concrete handoffs — admission, runtime,
-  decision, review — with no LLM on any gate's critical path.
+- **Four gates** are designed to enforce declared properties at concrete handoffs — admission,
+  runtime, decision, review — with no model on any gate's critical path. What runs today is the
+  admission check (grounding refuses a query Ω cannot type) and the review gate (an ontology
+  authorises nothing until a person publishes it); the other two are not yet a distinct layer.
 - **Five deployment modes**, from managed SaaS to single-tenant, customer VPC, hybrid, and
   fully air-gapped / sovereign. The same typed interfaces sit behind each; only the location
   of data and the network boundary change.
@@ -127,7 +154,8 @@ Python 3.11+, `mypy --strict`, `ruff`. Each service is an installable package.
 ```bash
 python -m venv .venv && source .venv/bin/activate
 for pkg in libs/loka-schemas services/adapters services/ontology \
-           services/state services/causal services/knowledge services/compiler; do
+           services/state services/causal services/knowledge services/compiler \
+           services/grounding services/serving services/api; do
   pip install -e "$pkg[dev]"
 done
 
@@ -145,8 +173,9 @@ optional production backend selected behind the same port:
 | data adapter | `InMemoryAdapter` | `PostgresAdapter` | `services/adapters[postgres]` |
 | causal graph | `CausalGraph` | `Neo4jCausalGraph` | `services/causal[neo4j]` |
 
-Full-strength CΩ type checking uses Soufflé when the `souffle` binary is present (the
-pure-Python checker is the default).
+The loader's eight consistency rules are the checker that runs. A Soufflé/Datalog path exists
+(`souffle_checker.py`) for the semantic rules beyond them; those rules are not yet written, so
+nothing on the query path calls it.
 
 Integration tests for the production backends are skipped unless a database is reachable:
 
@@ -178,8 +207,27 @@ Or run the whole stack (API + Postgres + Neo4j + Redis) with Docker:
 docker compose -f infra/docker-compose.yml up -d --build   # API on :8000
 ```
 
-Endpoints: `GET /health`, `POST /compile` (typed query q* → W(q, t)). The natural-language
-front-end (NL → q*) is a separate layer, not yet built.
+### Endpoints
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /health` | liveness + ontology version |
+| `POST /compile` | typed query q* → W(q, t) |
+| `POST /ask` | natural-language question → typed query → answer, or a typed refusal |
+| `POST /project` | apply the projection method directly (no model call) |
+| `GET /scenario` | the method's fields and the Ω attributes they are bound to |
+| `GET /kb` | observed facts and, separately, computed counterfactual ones |
+| `POST /build-kb` | domain text → draft ontology + review checklist |
+| `GET /ontology`, `GET\|PUT /ontology/{id}`, `POST /ontology/{id}/publish` | review lifecycle |
+| `GET /supply/scenario` | entities, relations with their link fields, guarded actions |
+| `GET /supply/route` | the route Ω declares between two entity types |
+| `POST /supply/impact` | tighten an action's guard → what loses eligibility, what it reaches |
+| `POST /answer` | the full chain (grounding → W(q,t) → simulate → policy) |
+| `POST /compile-ontology` | compile an externally-authored ontology into W(q, t) |
+| `POST /kb/{id}/ingest` | fill a built KB with data rows and causal claims |
+
+The natural-language front end is built: `POST /ask` formalises a question against the ontology
+and refuses it — naming the check that failed — when the ontology cannot ground it.
 
 ## Engineering principles
 

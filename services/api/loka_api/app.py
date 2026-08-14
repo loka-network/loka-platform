@@ -187,11 +187,12 @@ def create_app(world: World | None = None) -> FastAPI:
     # attributes are the ontology's attributes (the ontology is load-bearing, not decorative).
     from .scenario import load_health_ontology, method_spec
 
+    # A method whose fields Ω does not declare must not run: that is what makes the ontology
+    # load-bearing rather than descriptive, so the failure is raised, not absorbed. Only the
+    # absence of an ontology altogether is tolerated — the method then reports itself as
+    # unvalidated (ontology_validated: false) instead of pretending Ω authorised it.
     app.state.health_engine = load_health_ontology()
-    try:
-        app.state.health_method = method_spec(app.state.health_engine)
-    except Exception:  # ontology inconsistent with the method -> fall back, mark unvalidated
-        app.state.health_method = method_spec(None)
+    app.state.health_method = method_spec(app.state.health_engine)
 
     # Governance context for the slide-6 policy stage, sourced from Ω (version + action guard),
     # so the decision memo's enforced constraint is the ontology's, not a hardcoded string.

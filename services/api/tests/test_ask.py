@@ -55,7 +55,7 @@ def test_ask_end_to_end_with_fake_llm(monkeypatch: pytest.MonkeyPatch) -> None:
         json={"question": "If Zambia raises health spending to $150, what of mortality?"},
     )
     if resp.status_code == 500:  # real panel not present in this env — skip
-        return
+        pytest.skip("health panel not present in this env")
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["iso3"] == "ZMB"
@@ -77,7 +77,7 @@ def test_ask_refuses_a_predicate_not_declared_in_omega(monkeypatch: pytest.Monke
     client = TestClient(create_app())
     resp = client.post("/ask", json={"question": "Will Zambia's stock market rise tomorrow?"})
     if resp.status_code == 500:  # panel absent in this env
-        return
+        pytest.skip("health panel not present in this env")
     body = resp.json()
     assert body["answer"] == "don't know"
     assert body["reason_code"] == "not_in_ontology"
@@ -86,13 +86,17 @@ def test_ask_refuses_a_predicate_not_declared_in_omega(monkeypatch: pytest.Monke
 def test_removing_an_attribute_from_omega_breaks_the_lookup(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """Ω is load-bearing: delete under5_mortality from Ω and the lookup stops answering."""
-    import loka_serving
+    """Ω is load-bearing: delete the outcome from Ω and the service refuses to start.
+
+    A method whose fields the ontology does not declare cannot be authorised by it, so the
+    failure surfaces at startup rather than as an answer that quietly claims less validation
+    than it appears to have.
+    """
     import yaml
 
     src_path = Path(__file__).resolve().parents[3] / "examples" / "health_ontology.yaml"
-    if not src_path.exists():  # ontology absent in this env
-        return
+    if not src_path.exists():
+        pytest.skip("health ontology not present in this env")
     src = yaml.safe_load(src_path.read_text())
     for ent in src["entities"]:
         if ent["type"] == "Country":
@@ -101,17 +105,8 @@ def test_removing_an_attribute_from_omega_breaks_the_lookup(
     trimmed.write_text(yaml.safe_dump(src))
     monkeypatch.setenv("LOKA_HEALTH_ONTOLOGY", str(trimmed))
 
-    fake = _fake_client('{"country":"Zambia","new_spending":null,"attribute":"under5_mortality"}')
-    monkeypatch.setattr(loka_serving, "llm_for", lambda purpose: fake)
-    monkeypatch.setattr(loka_serving, "model_for", lambda purpose: "m")
-
-    client = TestClient(create_app())
-    resp = client.post("/ask", json={"question": "What is Zambia's current child mortality?"})
-    if resp.status_code == 500:
-        return
-    body = resp.json()
-    assert body["answer"] == "don't know"
-    assert body["reason_code"] == "not_in_ontology"
+    with pytest.raises(ValueError, match="under5_mortality"):
+        create_app()
 
 
 def test_projection_then_lookup_returns_the_observation(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -128,7 +123,7 @@ def test_projection_then_lookup_returns_the_observation(monkeypatch: pytest.Monk
     )
     proj = client.post("/ask", json={"question": "If Zambia raises spending to 150, mortality?"})
     if proj.status_code == 500:  # panel absent in this env
-        return
+        pytest.skip("health panel not present in this env")
     projected = proj.json()["controlled"]["projected_outcome"]
 
     # 2) then the current value (asks) -> must still be the observation, not the projection
@@ -156,7 +151,7 @@ def test_ask_lookup_goes_through_asks_branch(monkeypatch: pytest.MonkeyPatch) ->
     client = TestClient(create_app())
     resp = client.post("/ask", json={"question": "What is Zambia's current child mortality?"})
     if resp.status_code == 500:  # panel absent in this env
-        return
+        pytest.skip("health panel not present in this env")
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["speech_act"]["act"] == "asks"
@@ -175,7 +170,7 @@ def test_ask_out_of_domain_says_dont_know(monkeypatch: pytest.MonkeyPatch) -> No
     client = TestClient(create_app())
     resp = client.post("/ask", json={"question": "Will Zambia's stock market rise tomorrow?"})
     if resp.status_code == 500:  # panel absent in this env
-        return
+        pytest.skip("health panel not present in this env")
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["answer"] == "don't know"

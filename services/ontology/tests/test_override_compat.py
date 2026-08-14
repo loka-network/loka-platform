@@ -76,7 +76,7 @@ def test_the_shipped_health_ontology_still_loads() -> None:
     path = os.path.join(
         os.path.dirname(__file__), "..", "..", "..", "examples", "health_ontology.yaml"
     )
-    if not os.path.exists(path):  # examples not present in this env
-        return
+    if not os.path.exists(path):
+        pytest.skip("examples not present in this env")
     with open(path) as f:
         load_ontology_str(f.read())

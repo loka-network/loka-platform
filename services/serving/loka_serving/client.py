@@ -58,22 +58,34 @@ class _OpenAICompatMessages:
         **_: Any,
     ) -> Any:
         msgs = ([{"role": "system", "content": system}] if system else []) + list(messages)
-        resp = self._client.chat.completions.create(
-            model=model, max_tokens=max(max_tokens, min_max_tokens()), messages=msgs
-        )
-        choice = resp.choices[0]
-        text = choice.message.content or ""
-        if not text.strip():
+        budget = max(max_tokens, min_max_tokens())
+
+        # A reasoning model's chain of thought varies in length from call to call, so a budget
+        # that suffices for one request can be consumed entirely by the next — the answer comes
+        # back empty with finish_reason=length. Retrying once with a doubled budget adapts to
+        # that; raising the constant would only move the threshold at which it recurs.
+        for attempt in (1, 2):
+            resp = self._client.chat.completions.create(
+                model=model, max_tokens=budget, messages=msgs
+            )
+            choice = resp.choices[0]
+            text = choice.message.content or ""
+            if text.strip():
+                return SimpleNamespace(content=[SimpleNamespace(type="text", text=text)])
+            finish = getattr(choice, "finish_reason", "?")
+            if attempt == 1 and finish == "length":
+                budget *= 2
+                continue
             # Distinguish "the model produced nothing usable" from "the JSON was malformed",
             # so the operator sees the actual cause instead of a parse error.
             reasoning = getattr(choice.message, "reasoning_content", None)
             raise EmptyCompletionError(
-                f"model {model} returned no content "
-                f"(finish_reason={getattr(choice, 'finish_reason', '?')}"
+                f"model {model} returned no content after {attempt} attempt(s) "
+                f"(finish_reason={finish}, budget={budget}"
                 + (f", {len(reasoning)} chars of reasoning" if reasoning else "")
                 + "); raise max_tokens or LOKA_LLM_MIN_MAX_TOKENS"
             )
-        return SimpleNamespace(content=[SimpleNamespace(type="text", text=text)])
+        raise AssertionError("unreachable")  # pragma: no cover
 
 
 class OpenAICompatClient:

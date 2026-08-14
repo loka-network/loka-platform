@@ -54,7 +54,7 @@ _SAMPLE: dict[str, list[dict[str, Any]]] = {
 
 
 def load_supply_ontology() -> Any | None:
-    """Load supply-v1 (env override, else the repo's examples/)."""
+    """Load the supply ontology (env override, else the repo's examples/)."""
     from loka_ontology import OntologyEngine, load_ontology_str
 
     here = os.path.dirname(__file__)

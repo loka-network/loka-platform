@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 from loka_api.app import create_app
 
@@ -12,8 +13,8 @@ def _client() -> TestClient:
 
 def test_scenario_exposes_the_parts_of_omega_a_single_table_cannot_use() -> None:
     body = _client().get("/supply/scenario").json()
-    if body.get("ontology_version") is None:  # ontology absent in this env
-        return
+    if body.get("ontology_version") is None:
+        pytest.skip("supply ontology not present in this env")
     assert body["ontology_version"] == "supply-v2"
     # ⪯ is declared, and every relation says which field it is traversed by
     assert body["entities"]["BulkyProduct"]["subtype_of"] == "Product"
@@ -27,7 +28,7 @@ def test_scenario_exposes_the_parts_of_omega_a_single_table_cannot_use() -> None
 def test_route_is_derived_not_hand_written() -> None:
     r = _client().get("/supply/route", params={"from_type": "Order", "to_type": "Seller"})
     if r.status_code == 503:
-        return
+        pytest.skip("supply scenario unavailable in this env")
     body = r.json()
     assert body["hops"] == 2
     assert body["route"] == ["contains>(via order_id)", "fulfilled_by>(via seller_id)"]
@@ -37,7 +38,7 @@ def test_route_is_derived_not_hand_written() -> None:
 def test_route_reports_narrowing_rather_than_pretending_it_is_reachable() -> None:
     r = _client().get("/supply/route", params={"from_type": "Order", "to_type": "BulkyProduct"})
     if r.status_code == 503:
-        return
+        pytest.skip("supply scenario unavailable in this env")
     body = r.json()
     assert body["requires_narrowing"] is True
     assert body["route"] == ["contains>(via order_id)", "of_product>(via product_id)"]
@@ -46,7 +47,7 @@ def test_route_reports_narrowing_rather_than_pretending_it_is_reachable() -> Non
 def test_route_to_an_unknown_entity_is_404() -> None:
     r = _client().get("/supply/route", params={"from_type": "Order", "to_type": "Warehouse"})
     if r.status_code == 503:
-        return
+        pytest.skip("supply scenario unavailable in this env")
     assert r.status_code == 404
     assert "not an entity" in r.json()["detail"]
 
@@ -54,7 +55,7 @@ def test_route_to_an_unknown_entity_is_404() -> None:
 def test_impact_takes_the_rule_from_the_ontology_and_follows_the_relations() -> None:
     r = _client().post("/supply/impact", json={"action": "ShipStandard", "new_threshold": 5000})
     if r.status_code == 503:
-        return
+        pytest.skip("supply scenario unavailable in this env")
     body = r.json()
     # the rule is Ω's, not a constant in the service
     assert body["guard"] == {
@@ -74,7 +75,7 @@ def test_impact_takes_the_rule_from_the_ontology_and_follows_the_relations() -> 
 def test_impact_on_an_action_the_ontology_does_not_declare_is_refused() -> None:
     r = _client().post("/supply/impact", json={"action": "Teleport", "new_threshold": 1})
     if r.status_code == 503:
-        return
+        pytest.skip("supply scenario unavailable in this env")
     assert r.status_code == 400
     detail = r.json()["detail"]
     assert "not an action" in detail["error"]

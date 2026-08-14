@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 from loka_api.app import create_app
 
@@ -10,7 +11,7 @@ def test_project_zambia_returns_controlled_and_naive() -> None:
     client = TestClient(create_app())
     resp = client.post("/project", json={"country": "ZMB", "new_spending": 150, "mode": "both"})
     if resp.status_code == 500:  # panel not shipped in this env — skip gracefully
-        return
+        pytest.skip("health panel not present in this env")
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["iso3"] == "ZMB"
