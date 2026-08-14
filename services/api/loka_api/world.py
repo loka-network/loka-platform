@@ -163,7 +163,7 @@ def build_world_from_env() -> World:
     state = WorldState()
     adapter = PostgresAdapter(pg_dsn, adapter_id="pg", tables={"GDP": "gdp_state"})
     try:
-        asyncio.run(_ingest_gdp(state, adapter))
+        asyncio.run(_ingest_gdp(state, adapter, engine))
     except Exception as exc:  # noqa: BLE001 - stay up even if not seeded yet
         print(f"[world] state ingest skipped: {exc}")
     return World(
@@ -175,8 +175,11 @@ def build_world_from_env() -> World:
     )
 
 
-async def _ingest_gdp(state: WorldState, adapter: MemoryAdapter) -> None:
+async def _ingest_gdp(state: WorldState, adapter: MemoryAdapter, engine: OntologyEngine) -> None:
+    """Read the attributes Ω declares for the entity — not whatever columns the table happens
+    to have. The ontology decides what an entity *is*, so it decides what is read."""
     from loka_schemas import Certificate
 
     session = await adapter.authenticate(Certificate(subject="api", scopes=frozenset({"GDP"})))
-    await state.ingest_from(adapter, TypedPredicate("GDP"), session)
+    predicate = TypedPredicate("GDP", columns=tuple(sorted(engine.properties_of("GDP"))))
+    await state.ingest_from(adapter, predicate, session)

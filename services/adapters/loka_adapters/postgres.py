@@ -20,6 +20,8 @@ from loka_schemas.data import Lineage, TypedPredicate, TypedRow
 from psycopg import sql
 from psycopg.rows import dict_row
 
+from .sql_planner import plan_select
+
 
 class PostgresAdapter:
     """Read-only adapter over a Postgres database, keyed by entity type → table."""
@@ -79,21 +81,40 @@ class PostgresAdapter:
 
     def _build_query(
         self, table: str, predicate: TypedPredicate
-    ) -> tuple[sql.Composed, list[object]]:
+    ) -> tuple[str | sql.Composed, list[object]]:
+        """Assemble the read.
+
+        When the caller supplies a column projection — which it does when Ω describes the entity
+        — the whole statement is planned by :func:`plan_select`: every identifier is validated
+        against a plain-identifier pattern, every operator comes from a fixed set, and every
+        value is a bound parameter. Injection is not filtered for; it cannot be expressed.
+
+        A predicate with no columns falls back to ``SELECT *``, which is the shape for a table no
+        ontology describes. That path exists for un-modelled data and reads whatever the table
+        has, so it is the weaker one.
+        """
+        ranges: list[tuple[str, str, object]] = []
+        if predicate.time_range is not None:
+            if predicate.time_range.start is not None:
+                ranges.append((self._timestamp_field, ">=", predicate.time_range.start))
+            if predicate.time_range.end is not None:
+                ranges.append((self._timestamp_field, "<", predicate.time_range.end))
+
+        if predicate.columns:
+            return plan_select(
+                table, list(predicate.columns), filters=predicate.filters, ranges=ranges
+            )
+
         conditions: list[sql.Composable] = []
         params: list[object] = []
         for key, expected in predicate.filters.items():
             conditions.append(sql.SQL("{} = %s").format(sql.Identifier(key)))
             params.append(expected)
-        if predicate.time_range is not None:
-            ts_col = sql.Identifier(self._timestamp_field)
-            if predicate.time_range.start is not None:
-                conditions.append(sql.SQL("{} >= %s").format(ts_col))
-                params.append(predicate.time_range.start)
-            if predicate.time_range.end is not None:
-                conditions.append(sql.SQL("{} < %s").format(ts_col))
-                params.append(predicate.time_range.end)
-
+        for column, op_text, value in ranges:
+            conditions.append(
+                sql.SQL("{} " + op_text + " %s").format(sql.Identifier(column))  # noqa: S608
+            )
+            params.append(value)
         statement = sql.SQL("SELECT * FROM {}").format(sql.Identifier(table))
         if conditions:
             statement = statement + sql.SQL(" WHERE ") + sql.SQL(" AND ").join(conditions)

@@ -38,3 +38,20 @@ def test_empty_columns_rejected() -> None:
 def test_negative_limit_rejected() -> None:
     with pytest.raises(SqlPlanError):
         plan_select("grants", ["id"], limit=-1)
+
+
+def test_range_operator_must_come_from_the_fixed_set() -> None:
+    with pytest.raises(SqlPlanError, match="unsupported range operator"):
+        plan_select("t", ["a"], ranges=[("ts", "; DROP TABLE users --", 1)])
+
+
+def test_ranges_are_parameterised_like_filters() -> None:
+    sql, params = plan_select(
+        "gdp_state", ["value", "unit"],
+        filters={"iso3": "THA"},
+        ranges=[("ts", ">=", "2020-01-01"), ("ts", "<", "2021-01-01")],
+    )
+    assert sql == (
+        "SELECT value, unit FROM gdp_state WHERE iso3 = %s AND ts >= %s AND ts < %s"
+    )
+    assert params == ["THA", "2020-01-01", "2021-01-01"]

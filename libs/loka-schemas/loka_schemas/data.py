@@ -36,6 +36,10 @@ class TypedPredicate:
     entity_type: str
     filters: Mapping[str, object] = field(default_factory=dict)
     time_range: Interval | None = None
+    # Which columns to read. The caller holds the ontology, so it decides what an entity's
+    # attributes are; an adapter that chose for itself would be reading fields Ω never declared.
+    # Empty means "whatever the table has", which is only appropriate where no ontology applies.
+    columns: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

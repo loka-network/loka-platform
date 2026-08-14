@@ -26,18 +26,25 @@ def _check_ident(name: str, kind: str) -> str:
     return name
 
 
+# Comparison operators a range condition may use. A caller cannot introduce another: the
+# operator is looked up here, never interpolated from its input.
+_RANGE_OPS = frozenset({">=", ">", "<=", "<"})
+
+
 def plan_select(
     table: str,
     columns: Sequence[str],
     *,
     filters: Mapping[str, object] | None = None,
+    ranges: Sequence[tuple[str, str, object]] = (),
     limit: int | None = None,
 ) -> tuple[str, list[object]]:
     """Build a parameterised ``SELECT``. Returns ``(sql, params)``.
 
-    ``table`` and every column/filter key must be plain identifiers (validated against the
-    ontology's names upstream); filter *values* are returned as bound parameters, never
-    interpolated. ``limit`` must be a non-negative int.
+    ``table`` and every column key must be plain identifiers (validated against the ontology's
+    names upstream); every value is returned as a bound parameter, never interpolated.
+    ``ranges`` carries ``(column, operator, value)`` comparisons — a time window, typically —
+    with the operator drawn from a fixed set. ``limit`` must be a non-negative int.
     """
     if not columns:
         raise SqlPlanError("at least one column is required")
@@ -45,11 +52,16 @@ def plan_select(
     cols = ", ".join(_check_ident(c, "column") for c in columns)
     sql = f"SELECT {cols} FROM {table}"  # noqa: S608 — identifiers validated above
     params: list[object] = []
-    if filters:
-        clauses = []
-        for key, value in filters.items():
-            clauses.append(f"{_check_ident(key, 'filter column')} = %s")
-            params.append(value)
+    clauses: list[str] = []
+    for key, value in (filters or {}).items():
+        clauses.append(f"{_check_ident(key, 'filter column')} = %s")
+        params.append(value)
+    for column, op, value in ranges:
+        if op not in _RANGE_OPS:
+            raise SqlPlanError(f"unsupported range operator: {op!r}")
+        clauses.append(f"{_check_ident(column, 'range column')} {op} %s")
+        params.append(value)
+    if clauses:
         sql += " WHERE " + " AND ".join(clauses)
     if limit is not None:
         if not isinstance(limit, int) or limit < 0:
