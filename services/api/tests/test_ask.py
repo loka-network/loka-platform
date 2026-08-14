@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 from loka_api.app import create_app
-from loka_api.nl_project import as_spending, extract_projection, resolve_country
+from loka_api.nl_project import as_spending, resolve_country
 
 _PANEL = [
     {"iso3": "ZMB", "country": "Zambia", "year": "2023"},
@@ -19,12 +19,6 @@ _PANEL = [
 def _fake_client(payload_json: str) -> object:
     create = lambda **_: SimpleNamespace(content=[SimpleNamespace(type="text", text=payload_json)])  # noqa: E731
     return SimpleNamespace(messages=SimpleNamespace(create=create))
-
-
-def test_extract_projection_parses_llm_json() -> None:
-    client = _fake_client('{"country": "Zambia", "new_spending": 150}')
-    out = extract_projection("If Zambia raises health spending to $150, mortality?", client, "m")
-    assert out == {"country": "Zambia", "new_spending": 150}
 
 
 def test_resolve_country_by_name_and_iso() -> None:

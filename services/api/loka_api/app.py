@@ -328,7 +328,22 @@ def create_app(world: World | None = None) -> FastAPI:
             rec = _store().publish(ontology_id, req.version)
         except OntologyStateError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
-        return rec.as_dict()
+
+        # A world built at /build-kb holds the engine compiled from the *draft*. Leaving it there
+        # would make review theatre: the gate would check the record's state while every query
+        # still ran against the text the reviewer corrected. Rebind the published ontology, and
+        # keep the state and evidence already ingested against it.
+        from loka_ontology import OntologyEngine, load_ontology_str
+
+        engine = OntologyEngine(load_ontology_str(rec.yaml))
+        rebound = 0
+        for world in app.state.kb_worlds.values():
+            if getattr(world, "ontology_id", None) == ontology_id:
+                world.engine = engine
+                rebound += 1
+        out = rec.as_dict()
+        out["worlds_rebound"] = rebound
+        return out
 
     def _panel_or_500() -> list[dict[str, Any]]:
         panel: list[dict[str, Any]] | None = app.state.__dict__.setdefault(
@@ -658,9 +673,13 @@ def create_app(world: World | None = None) -> FastAPI:
         w = app.state.kb_worlds.get(kb_id)
         if w is None:
             raise HTTPException(status_code=404, detail=f"unknown kb_id: {kb_id}")
+        stored, rejected = ingest_data(w, req.data)
         return {
             "kb_id": kb_id,
-            "data_ingested": ingest_data(w, req.data),
+            "data_ingested": stored,
+            # Values Ω's declared types do not admit, with the reason. Reported rather than
+            # dropped: a caller that sent 40 rows and had 3 refused needs to know which.
+            "data_rejected": rejected,
             "causal_ingested": ingest_causal(w, req.causal),
         }
 

@@ -29,14 +29,33 @@ _LAYER = {
 }
 
 
-def ingest_data(world: World, entries: list[dict[str, Any]]) -> int:
-    """Set state values from ``{entity, instance, property, value}`` entries (KB.DATA)."""
-    n = 0
+def ingest_data(world: World, entries: list[dict[str, Any]]) -> tuple[int, list[str]]:
+    """Set state values from ``{entity, instance, property, value}`` entries (KB.DATA).
+
+    Each value is checked against the type Ω declares for that property before it is stored.
+    Ω says an entity's ``weight_g`` is a double; a row carrying the string "heavy" is not that
+    entity's weight, and admitting it would let every downstream check operate on data the
+    ontology does not describe while continuing to report that it does. Rejected entries are
+    returned with the reason rather than dropped silently.
+
+    This checks the *type*, not the meaning: a column of plausible numbers that is actually a
+    price will still pass as a weight. Closing that needs a declared mapping between attribute
+    and source column, which does not exist yet.
+    """
+    validate = getattr(world.engine, "validate_values", None)
+    stored, rejected = 0, []
     for e in entries:
-        key = f"{e['entity']}.{e.get('instance', '0')}.{e['property']}"
-        world.state.set(key, e["value"], _T)
-        n += 1
-    return n
+        entity, prop, value = e["entity"], e["property"], e["value"]
+        if callable(validate):
+            errors = validate(entity, {prop: value}, allow_unknown=False)
+            # Only this property is being set, so a complaint about a *missing* one is expected.
+            errors = tuple(x for x in errors if not x.startswith("missing required"))
+            if errors:
+                rejected.append(f"{entity}.{prop}: {'; '.join(errors)}")
+                continue
+        world.state.set(f"{entity}.{e.get('instance', '0')}.{prop}", value, _T)
+        stored += 1
+    return stored, rejected
 
 
 def ingest_causal(world: World, claims: list[dict[str, Any]]) -> int:

@@ -157,3 +157,31 @@ def test_checklist_reports_an_ontology_that_does_not_load() -> None:
     items = review_checklist("version: v1\nentities:\n  - type: A\n    subtype_of: Nope\n")
     assert items[0]["kind"] == "does_not_load"
     assert "Nope" in items[0]["detail"]
+
+
+def test_publishing_rebinds_the_world_to_the_reviewed_ontology() -> None:
+    """Review is not a record-keeping exercise: what a reviewer fixed must be what runs.
+
+    The world built at /build-kb holds the engine compiled from the draft. If publishing left it
+    there, the gate would check the record's state while every query still ran against the text
+    the reviewer had corrected — the lifecycle would be theatre.
+    """
+    client = TestClient(create_app())
+    built = _build(client)
+    oid, kb_id = built["ontology_id"], built["kb_id"]
+
+    # the builder could not infer that GDP has a numeric value; the reviewer declares it
+    reviewed = built["ontology_yaml"].replace(
+        "  - type: GDP\n",
+        "  - type: GDP\n    properties:\n      - {name: value, type: double}\n",
+    )
+    assert client.put(f"/ontology/{oid}", json={"ontology_yaml": reviewed}).status_code == 200
+    published = client.post(f"/ontology/{oid}/publish", json={"version": "macro-v1"})
+    assert published.json()["worlds_rebound"] == 1
+
+    # the declaration the reviewer added is now the one ingestion checks against
+    body = client.post(f"/kb/{kb_id}/ingest", json={"data": [
+        {"entity": "GDP", "instance": "US", "property": "value", "value": 2.1},
+    ]}).json()
+    assert body["data_ingested"] == 1
+    assert body["data_rejected"] == []

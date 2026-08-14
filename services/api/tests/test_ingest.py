@@ -15,7 +15,9 @@ def test_ingest_then_answer_returns_real_data_and_causal() -> None:
         json={"texts": ["The Central Bank sets the Policy Rate, which affects GDP."]},
     ).json()
     kb_id = built["kb_id"]
-    publish_built_ontology(client, built)  # a draft ontology cannot authorize an answer
+    # A builder reading prose cannot infer that GDP has a numeric value; the reviewer
+    # declares it, which is what makes ingesting one legitimate.
+    publish_built_ontology(client, built, declare={"GDP": [("value", "double")]})
 
     ing = client.post(
         f"/kb/{kb_id}/ingest",
@@ -34,7 +36,9 @@ def test_ingest_then_answer_returns_real_data_and_causal() -> None:
         },
     )
     assert ing.status_code == 200, ing.text
-    assert ing.json() == {"kb_id": kb_id, "data_ingested": 1, "causal_ingested": 1}
+    assert ing.json() == {
+        "kb_id": kb_id, "data_ingested": 1, "data_rejected": [], "causal_ingested": 1,
+    }
 
     # asks/DATA now returns the ingested state value.
     data_ans = client.post(
@@ -66,3 +70,25 @@ def test_ingest_unknown_kb_is_404() -> None:
     client = TestClient(create_app())
     resp = client.post("/kb/nope/ingest", json={"data": [], "causal": []})
     assert resp.status_code == 404
+
+
+def test_a_value_omegas_type_does_not_admit_is_rejected_with_the_reason() -> None:
+    """Ω says GDP.value is a double. A row carrying "heavy" is not that entity's value, and
+    storing it would let every later check run on data the ontology does not describe."""
+    client = TestClient(create_app())
+    built = client.post(
+        "/build-kb", json={"texts": ["The Central Bank sets the Policy Rate, which affects GDP."]}
+    ).json()
+    kb_id = built["kb_id"]
+    publish_built_ontology(client, built, declare={"GDP": [("value", "double")]})
+
+    body = client.post(f"/kb/{kb_id}/ingest", json={"data": [
+        {"entity": "GDP", "instance": "US", "property": "value", "value": 2.1},
+        {"entity": "GDP", "instance": "TH", "property": "value", "value": "heavy"},
+        {"entity": "GDP", "instance": "US", "property": "not_declared", "value": 1},
+    ]}).json()
+
+    assert body["data_ingested"] == 1                      # only the well-typed row is stored
+    assert len(body["data_rejected"]) == 2
+    assert any("expects double" in r for r in body["data_rejected"])
+    assert any("unknown property" in r for r in body["data_rejected"])

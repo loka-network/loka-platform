@@ -12,28 +12,6 @@ import json
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-_SYSTEM = (
-    "You extract a health-spending projection request. Reply with ONLY a JSON object: "
-    '{"country": <country name or ISO3 code, or null>, '
-    '"new_spending": <number: new health spending per capita in USD, or null>}. '
-    "If the question is not about changing a country's health spending to project child "
-    "mortality, use nulls. No prose, no code fences."
-)
-
-
-def extract_projection(question: str, client: Any, model: str) -> dict[str, Any]:
-    """Ask the LLM to propose {country, new_spending} from a natural-language question."""
-    resp = client.messages.create(
-        model=model,
-        max_tokens=1000,
-        system=_SYSTEM,
-        messages=[{"role": "user", "content": question}],
-    )
-    text = "".join(getattr(b, "text", "") for b in resp.content if getattr(b, "type", "") == "text")
-    start, end = text.find("{"), text.rfind("}")
-    obj = json.loads(text[start : end + 1]) if start != -1 else {}
-    return {"country": obj.get("country"), "new_spending": obj.get("new_spending")}
-
 
 def _formalize_system(entity: str, attributes: Sequence[str]) -> str:
     """Build the formalization prompt from the ontology's declared properties.
