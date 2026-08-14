@@ -12,8 +12,10 @@ to catch. The demo of the guard was running on data with the guarded case remove
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
-from loka_api.supply import load_supply_dataset
+from loka_api.supply import data_source, load_supply_dataset
 from loka_ontology import OntologyEngine
 
 
@@ -142,3 +144,31 @@ def test_the_norms_actually_bite_on_the_real_data(
         if isinstance(r.get("days_late"), float) and r["days_late"] >= 3
     ]
     assert late, "no order is late enough to trigger the disclosure obligation"
+
+
+def test_a_mistyped_dataset_path_is_reported_not_silently_downgraded(
+    monkeypatch: Any, engine: OntologyEngine
+) -> None:
+    """The failure this was written for: a container was started with LOKA_SUPPLY_DATA pointing
+    at a directory that does not exist in the image. Every endpoint answered, and answered over
+    thirteen hand-written rows. Nothing said so.
+
+    The fall-back is now to the bundled sample rather than the smoke-test rows, and which source
+    is live is reported, so the mistake is visible without shell access to the container.
+    """
+    monkeypatch.setenv("LOKA_SUPPLY_DATA", "/does/not/exist")
+    rows = load_supply_dataset()
+    assert len(rows["Order"]) >= 1000, "a bad path must not drop the service to the smoke rows"
+
+    source = data_source()
+    assert source["configured"] == "/does/not/exist"
+    assert source["configured_path_usable"] is False
+    assert source["kind"] == "bundled sample"
+
+
+def test_with_nothing_configured_the_source_says_so(monkeypatch: Any) -> None:
+    monkeypatch.delenv("LOKA_SUPPLY_DATA", raising=False)
+    source = data_source()
+    assert source["kind"] == "bundled sample"
+    assert source["configured"] is None
+    assert source["configured_path_usable"] is None  # nothing was configured to be wrong

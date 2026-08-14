@@ -484,10 +484,16 @@ def create_app(world: World | None = None) -> FastAPI:
         carry weight — so it is the ontology to look at to see what Ω does beyond type-checking
         a single row.
         """
+        from .supply import data_source
+
         eng = _supply_or_503()
         data = app.state.supply_data
         return {
             "ontology_version": eng.version,
+            # Which rows these counts came from. A working answer over the wrong data looks
+            # exactly like a working answer, so the source is reported rather than inferred
+            # from the row counts by whoever happens to remember what the right ones are.
+            "data_source": data_source(),
             "entities": {
                 name: {
                     "properties": sorted(eng.properties_of(name)),

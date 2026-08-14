@@ -19,6 +19,7 @@ import csv
 import operator
 import os
 import re
+import sys
 from collections.abc import Callable
 from typing import Any
 
@@ -81,6 +82,44 @@ def _bundled_sample_dir() -> str | None:
     return None
 
 
+def _resolve_directory() -> str | None:
+    """The directory to read, or None to use the in-file rows. Complains about a bad path."""
+    configured = os.getenv("LOKA_SUPPLY_DATA")
+    if configured and not os.path.isdir(configured):
+        print(
+            f"[supply] LOKA_SUPPLY_DATA={configured!r} is not a directory; "
+            "falling back to the bundled sample",
+            file=sys.stderr,
+        )
+        configured = None
+    return configured or _bundled_sample_dir()
+
+
+def data_source() -> dict[str, Any]:
+    """Which rows are being served, and whether the configured path was usable.
+
+    An operator who mistypes a mount has no way to tell from the row counts alone that anything
+    went wrong — a working answer over the wrong data looks exactly like a working answer. This
+    is reported alongside the scenario so the question is answerable without shell access.
+    """
+    configured = os.getenv("LOKA_SUPPLY_DATA")
+    resolved = _resolve_directory()
+    if resolved is None:
+        kind = "built-in rows (a dozen, for smoke tests only)"
+    elif configured and os.path.isdir(configured):
+        kind = "configured dataset"
+    else:
+        kind = "bundled sample"
+    return {
+        "kind": kind,
+        "path": resolved,
+        "configured": configured,
+        "configured_path_usable": bool(configured and os.path.isdir(configured))
+        if configured
+        else None,
+    }
+
+
 def load_supply_dataset(engine: Any | None = None) -> dict[str, list[dict[str, Any]]]:
     """Rows per entity type.
 
@@ -93,10 +132,15 @@ def load_supply_dataset(engine: Any | None = None) -> dict[str, list[dict[str, A
     clone and their tests skipped, so the half of Ω that a single table cannot exercise was
     unreachable for anyone who had not run the build script first.
 
+    A configured path that does not exist is an operator error, not a reason to fall back
+    quietly. Doing so serves a dozen hand-written rows to someone who believes they mounted a
+    hundred thousand, and every number downstream is then wrong in a way nothing reports. It is
+    said on stderr and carried in :func:`data_source` so the mistake is visible over HTTP too.
+
     Numeric strings are converted so guards and comparisons operate on numbers, not text.
     """
-    directory = os.getenv("LOKA_SUPPLY_DATA") or _bundled_sample_dir()
-    if not directory or not os.path.isdir(directory):
+    directory = _resolve_directory()
+    if not directory:
         return {k: [dict(r) for r in v] for k, v in _SAMPLE.items()}
 
     # With an engine, Ω decides what an entity is and therefore what to read. Without one, read
