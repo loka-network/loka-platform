@@ -225,3 +225,65 @@ def test_building_from_no_rows_is_refused() -> None:
     client = TestClient(create_app())
     resp = client.post("/build-kb-from-data", json={"entity_type": "Seller", "rows": []})
     assert resp.status_code == 400
+
+
+# ---- the checklist has to be read to be useful ----
+
+def test_a_boolean_is_not_asked_which_currency_it_is_denominated_in() -> None:
+    """Units belong to quantities. The question was being put to every attribute of every type,
+    so a real extraction produced forty-one items asking whether booleans and timestamps were
+    per-capita or nominal. A reviewer who learns the list contains nonsense stops reading it,
+    and the findings that were worth reading go with it."""
+    items = review_checklist(
+        "version: v1\nentities:\n  - type: Seller\n    properties:\n"
+        "      - {name: is_business, type: boolean}\n"
+        "      - {name: joined_at, type: timestamp}\n"
+        "      - {name: state, type: string}\n"
+        "      - {name: punctuality, type: double}\n"
+    )
+    flagged = {
+        t
+        for i in items
+        if i["kind"] == "missing_units"
+        for t in i.get("targets", [i["target"]])
+    }
+    assert flagged == {"Seller.punctuality"}
+
+
+def test_country_is_not_reported_as_a_probable_number() -> None:
+    """'country' contains 'count'. Substring matching turned a correct field into a finding."""
+    items = review_checklist(
+        "version: v1\nentities:\n  - type: Seller\n    properties:\n"
+        "      - {name: country, type: string}\n      - {name: on_time_rate, type: string}\n"
+    )
+    suspect = {i["target"] for i in items if i["kind"] == "suspect_base_type"}
+    assert suspect == {"Seller.on_time_rate"}  # the real one is still caught
+
+
+def test_a_systematic_gap_is_one_finding_not_thirty_one() -> None:
+    """Extraction from prose never yields cardinality, so every relation lacks it. That is one
+    fact about the method, and reporting it per relation buried the specific findings under
+    sixty-two identical lines."""
+    relations = "\n".join(
+        f"  - {{name: r{i}, from: A, to: B}}" for i in range(31)
+    )
+    items = review_checklist(
+        f"version: v1\nentities:\n  - type: A\n  - type: B\nrelations:\n{relations}\n"
+    )
+    card = [i for i in items if i["kind"] == "undeclared_cardinality"]
+    assert len(card) == 1
+    assert card[0]["count"] == 31
+    assert len(card[0]["targets"]) == 31  # folded, not truncated
+    assert len(items) < 10  # the list stays readable
+
+
+def test_a_handful_is_still_itemised() -> None:
+    """Aggregation is for systematic gaps. Three relations missing a link field is specific
+    enough to act on one at a time, and naming them is more useful than counting them."""
+    relations = "\n".join(f"  - {{name: r{i}, from: A, to: B}}" for i in range(3))
+    items = review_checklist(
+        f"version: v1\nentities:\n  - type: A\n  - type: B\nrelations:\n{relations}\n"
+    )
+    via = [i for i in items if i["kind"] == "undeclared_link_field"]
+    assert len(via) == 3
+    assert {i["target"] for i in via} == {"r0", "r1", "r2"}

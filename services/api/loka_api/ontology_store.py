@@ -20,7 +20,9 @@ know: the items below are exactly the ones absent from, or unreliable in, the so
 
 from __future__ import annotations
 
+import re
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -35,6 +37,24 @@ _NUMERIC_HINTS = (
     "ratio", "per_capita", "mortality", "population", "income", "cost", "spend", "exp",
     "total", "avg", "average", "score", "level", "age", "year",
 )
+
+#: Beyond this many findings of one kind, they are reported as one item naming all of them.
+#: A reviewer reading 62 separate lines saying "this relation declares no cardinality" is not
+#: better informed than one reading a single line saying 31 of them do not, and is likelier to
+#: stop reading — at which point the specific findings underneath are lost too.
+_AGGREGATE_AT = 5
+
+
+def _looks_numeric(name: str) -> bool:
+    """Whether an attribute name suggests a quantity.
+
+    Matched on whole words, not substrings. "country" contains "count", and a checklist that
+    tells a reviewer their country field is probably a number teaches them the checklist is
+    unreliable — which costs more than the finding was worth.
+    """
+    lowered = name.lower()
+    tokens = set(re.split(r"[^a-z0-9]+", lowered))
+    return any(h in tokens if "_" not in h else h in lowered for h in _NUMERIC_HINTS)
 
 
 class OntologyStateError(RuntimeError):
@@ -90,44 +110,98 @@ def review_checklist(yaml_text: str) -> list[dict[str, Any]]:
     def add(kind: str, target: str, detail: str) -> None:
         items.append({"kind": kind, "target": target, "detail": detail})
 
+    def add_grouped(
+        kind: str,
+        targets: list[str],
+        one: Callable[[str], str],
+        many: Callable[[int], str],
+    ) -> None:
+        """Itemise a few findings; summarise a lot of them, naming every target either way.
+
+        A systematic gap and a specific oversight need different treatment. Thirty-one relations
+        with no cardinality is one fact about how extraction works, not thirty-one discoveries,
+        and listing it thirty-one times buries the handful of findings that are specific.
+        """
+        if not targets:
+            return
+        if len(targets) <= _AGGREGATE_AT:
+            for t in targets:
+                add(kind, t, one(t))
+            return
+        items.append({
+            "kind": kind,
+            "target": f"{len(targets)} of them",
+            "detail": many(len(targets)),
+            "targets": list(targets),  # nothing is dropped, only folded
+            "count": len(targets),
+        })
+
     try:
         onto = load_ontology_str(yaml_text)
     except Exception as exc:  # noqa: BLE001 - an unloadable draft is itself the finding
         add("does_not_load", "-", f"CΩ rejects this draft: {exc}")
         return items
 
+    undescribed: list[str] = []
+    no_cardinality: list[str] = []
+    no_via: list[str] = []
+
     for ent in onto.entities.values():
         for p in ent.properties:
             name = p.name.lower()
-            if p.base_type == "string" and any(h in name for h in _NUMERIC_HINTS):
+            if p.base_type == "string" and _looks_numeric(name):
                 add(
                     "suspect_base_type",
                     f"{ent.name}.{p.name}",
                     "typed 'string' but the name suggests a quantity; confirm the base type",
                 )
-            if not p.description:
-                add(
-                    "missing_units",
-                    f"{ent.name}.{p.name}",
-                    "no description: state the unit and basis (per-capita or total, "
-                    "nominal or PPP, which currency)",
-                )
+            # Units belong to quantities. Asking which currency a boolean is denominated in
+            # is noise, and it was being asked of every attribute of every type.
+            if not p.description and p.base_type in ("double", "integer"):
+                undescribed.append(f"{ent.name}.{p.name}")
 
     for rel in onto.relations:
         if rel.cardinality is None:  # undeclared, not "declared as unconstrained"
-            add(
-                "undeclared_cardinality",
-                rel.name,
-                f"{rel.from_type} -> {rel.to_type} states no cardinality; confirm whether "
-                "either side is single-valued (source text rarely says)",
-            )
+            no_cardinality.append(f"{rel.name} ({rel.from_type} -> {rel.to_type})")
         if rel.via is None:
-            add(
-                "undeclared_link_field",
-                rel.name,
-                "no 'via' field: the relation says the types are related but not how to follow "
-                "the link, so no query can traverse it",
-            )
+            no_via.append(rel.name)
+
+    add_grouped(
+        "missing_units",
+        undescribed,
+        lambda t: (
+            f"{t} is a quantity with no description; state its unit and basis"
+        ),
+        lambda n: (
+            f"{n} numeric attributes carry no description. A quantity without a stated unit "
+            "and basis is not usable: two sources will fill it with different things and "
+            "nothing downstream can tell"
+        ),
+    )
+    add_grouped(
+        "undeclared_cardinality",
+        no_cardinality,
+        lambda t: (
+            f"{t} states no cardinality; confirm whether either side is single-valued "
+            "(source text rarely says)"
+        ),
+        lambda n: (
+            f"{n} relations state no cardinality. A text describes what relates to what and "
+            "almost never how many, so this is expected from extraction and has to be decided"
+        ),
+    )
+    add_grouped(
+        "undeclared_link_field",
+        no_via,
+        lambda t: (
+            f"{t} has no 'via' field: the relation says the types are related but not how to "
+            "follow the link, so no query can traverse it"
+        ),
+        lambda n: (
+            f"{n} relations declare no 'via' field, so none of them can be traversed. The "
+            "field a link is walked by is in the data, not in the prose the ontology came from"
+        ),
+    )
 
     if not onto.constraints:
         add(
