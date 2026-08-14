@@ -6,9 +6,14 @@ which path builds it, since a projection that Ω did not produce must not be exp
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
 from loka_adapters.sql_planner import SqlPlanError
 from loka_schemas.data import Interval, TypedPredicate
+
+_START = datetime(2020, 1, 1, tzinfo=UTC)
+_END = datetime(2021, 1, 1, tzinfo=UTC)
 
 
 def _adapter() -> object:
@@ -34,12 +39,12 @@ def test_filters_and_a_time_window_are_bound_parameters() -> None:
         TypedPredicate(
             "GDP",
             filters={"iso3": "THA"},
-            time_range=Interval(start="2020-01-01", end="2021-01-01"),
+            time_range=Interval(start=_START, end=_END),
             columns=("value",),
         ),
     )
     assert stmt == "SELECT value FROM gdp_state WHERE iso3 = %s AND ts >= %s AND ts < %s"
-    assert params == ["THA", "2020-01-01", "2021-01-01"]
+    assert params == ["THA", _START, _END]
 
 
 def test_a_column_that_is_not_an_identifier_cannot_be_read() -> None:
