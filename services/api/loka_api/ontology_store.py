@@ -52,6 +52,12 @@ class OntologyRecord:
     source: str = "builder"             # who proposed it
     review: list[dict[str, Any]] = field(default_factory=list)
     history: list[str] = field(default_factory=list)
+    #: How this proposal was produced, in enough detail to reproduce it: the model, the prompt
+    #: it was given verbatim, and a digest of the input. Without it, two drafts of the same
+    #: domain that differ because a different model or a different prompt made them are
+    #: indistinguishable in the record — both say "built by an LLM" — and the only honest answer
+    #: to "why does yours have six concepts and mine nine" becomes "we don't know".
+    provenance: dict[str, Any] = field(default_factory=dict)
 
     def as_dict(self, *, include_yaml: bool = True) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -59,6 +65,7 @@ class OntologyRecord:
             "state": self.state,
             "version": self.version,
             "source": self.source,
+            "provenance": dict(self.provenance),
             "review": self.review,
             "history": list(self.history),
             "can_authorize_answers": self.state == PUBLISHED,
@@ -186,13 +193,24 @@ class OntologyStore:
     def __init__(self) -> None:
         self._records: dict[str, OntologyRecord] = {}
 
-    def create_draft(self, yaml_text: str, *, source: str = "builder") -> OntologyRecord:
-        """Register a proposal. It is a draft: editable, and unable to authorize anything."""
+    def create_draft(
+        self,
+        yaml_text: str,
+        *,
+        source: str = "builder",
+        provenance: dict[str, Any] | None = None,
+    ) -> OntologyRecord:
+        """Register a proposal. It is a draft: editable, and unable to authorize anything.
+
+        ``provenance`` records what produced it — model, prompt, input digest — so the draft can
+        be reproduced and two drafts of one domain can be told apart by more than their content.
+        """
         rec = OntologyRecord(
             ontology_id=uuid.uuid4().hex[:12],
             yaml=yaml_text,
             state=DRAFT,
             source=source,
+            provenance=dict(provenance or {}),
             review=review_checklist(yaml_text),
             history=[f"created as draft (source={source})"],
         )

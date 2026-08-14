@@ -33,6 +33,11 @@ class BuildKBRequest(BaseModel):
     """Domain texts posted to /build-kb (Workflow A: texts -> ontology + DATA/METHODS)."""
 
     texts: list[str]
+    #: Override the extraction instruction. The default covers entities, their attributes,
+    #: relations, verbs and the DATA/METHODS needs — not cardinality, guards or norms, which a
+    #: reviewer supplies. A domain that needs a different emphasis passes its own rather than
+    #: having one opinion compiled into the platform; whichever ran is recorded on the draft.
+    system_prompt: str | None = None
 
 
 class IngestRequest(BaseModel):
@@ -256,7 +261,13 @@ def create_app(world: World | None = None) -> FastAPI:
         Follows texts->LLM->ontology when LOKA_LLM_BUILD is set and a model is
         configured (Claude or a self-hosted vLLM, via the model gateway); otherwise the
         deterministic rule-based builder. The response's ``builder`` field says which ran.
+
+        What produced the draft is recorded on it: the model, the prompt verbatim, and a digest
+        of the input. The prompt decides which parts of Ω can be extracted at all, so a draft
+        without it cannot be reproduced or argued with — two runs over one document that differ
+        because the prompt or the model differed would both be filed as "built by an LLM".
         """
+        import hashlib
         import os
         import uuid
 
@@ -270,6 +281,7 @@ def create_app(world: World | None = None) -> FastAPI:
         spec = None
         builder_mode = "keyword"
         build_note: str | None = None
+        provenance: dict[str, Any] = {}
 
         if os.getenv("LOKA_LLM_BUILD", "").lower() in ("1", "true", "yes"):
             # Professor's way: texts -> LLM -> ontology. Any failure (bad key, no network egress,
@@ -279,10 +291,20 @@ def create_app(world: World | None = None) -> FastAPI:
                 from loka_serving import llm_for, model_for
 
                 llm_builder = LLMBuilder(
-                    client=llm_for("ontology_build"), model=model_for("ontology_build")
+                    client=llm_for("ontology_build"),
+                    model=model_for("ontology_build"),
+                    system_prompt=req.system_prompt,
                 )
                 spec = build(req.texts, llm_builder)
                 builder_mode = "llm"
+                # Read back from the builder rather than restated here: a second copy of a
+                # prompt is a copy that eventually stops matching the one that ran.
+                provenance = {
+                    "method": "text -> LLM -> ontology",
+                    "model": llm_builder.model,
+                    "prompt": llm_builder.system_prompt,
+                    "prompt_source": "caller" if req.system_prompt else "default",
+                }
             except Exception as exc:  # noqa: BLE001 - degrade gracefully, report why
                 build_note = f"LLM build failed ({type(exc).__name__}: {exc}); used rule-based"
 
@@ -291,13 +313,29 @@ def create_app(world: World | None = None) -> FastAPI:
                 spec = build(req.texts, None)
             except OntologyLoadError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
+            provenance = {
+                "method": "rule-based keyword builder (no model)",
+                "model": None,
+                "prompt": None,
+            }
+            if build_note:
+                provenance["fell_back_because"] = build_note
+
+        # The input is digested rather than stored: a domain document can be long and can be
+        # confidential, and what a reader needs is to confirm they are looking at the same one.
+        digest = hashlib.sha256("\n".join(req.texts).encode()).hexdigest()[:16]
+        provenance["input_digest"] = digest
+        provenance["input_texts"] = len(req.texts)
+        provenance["input_chars"] = sum(len(t) for t in req.texts)
 
         kb_id = uuid.uuid4().hex[:12]
         app.state.kb_worlds[kb_id] = world_from_kbspec(spec)
 
         # The built ontology is a *proposal*: it enters the lifecycle as a draft and cannot
         # authorize an answer until a reviewer has edited it through CΩ and published it.
-        rec = _store().create_draft(spec.ontology_yaml, source=f"builder:{builder_mode}")
+        rec = _store().create_draft(
+            spec.ontology_yaml, source=f"builder:{builder_mode}", provenance=provenance
+        )
         app.state.kb_worlds[kb_id].ontology_id = rec.ontology_id
 
         out: dict[str, Any] = jsonable_encoder(spec)
@@ -305,6 +343,10 @@ def create_app(world: World | None = None) -> FastAPI:
         out["builder"] = builder_mode  # 'llm' or 'keyword' (rule-based)
         out["ontology_id"] = rec.ontology_id
         out["state"] = rec.state  # 'draft' — not yet able to authorize answers
+        out["source"] = rec.source
+        # The prompt and model that produced this, returned with it rather than only stored:
+        # a caller comparing two extractions needs the difference in front of them.
+        out["provenance"] = dict(rec.provenance)
         out["review"] = rec.review  # what a human must decide before this can be published
         if build_note:
             out["build_note"] = build_note  # why the LLM path was skipped, if it was

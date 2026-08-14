@@ -145,19 +145,43 @@ class LLMBuilder:
         '"data_needs": [...], "method_needs": [...]}. No prose, no code fences.'
     )
 
-    def __init__(self, *, client: Any | None = None, model: str = "claude-opus-4-8") -> None:
+    def __init__(
+        self,
+        *,
+        client: Any | None = None,
+        model: str = "claude-opus-4-8",
+        system_prompt: str | None = None,
+    ) -> None:
+        """``system_prompt`` overrides the default extraction instruction.
+
+        The prompt is the method: it decides which parts of Ω can come out of a text at all, so
+        two runs over one document with different prompts are two different procedures and not
+        two samples of one. It is a parameter so a domain can supply its own, and it is readable
+        afterwards (:attr:`system_prompt`) so what ran can be recorded rather than reconstructed
+        from a copy kept somewhere else, which is the kind of copy that goes stale.
+        """
         if client is None:
             import anthropic  # optional [llm] extra, imported lazily
 
             client = anthropic.Anthropic()
         self._client = client
         self._model = model
+        self._system = system_prompt or self._SYSTEM
+
+    @property
+    def system_prompt(self) -> str:
+        """The instruction this builder sends, verbatim."""
+        return self._system
+
+    @property
+    def model(self) -> str:
+        return self._model
 
     def propose(self, texts: Sequence[str]) -> OntologyDraft:
         resp = self._client.messages.create(
             model=self._model,
             max_tokens=4000,
-            system=self._SYSTEM,
+            system=self._system,
             messages=[{"role": "user", "content": "\n".join(texts)}],
         )
         text = "".join(
