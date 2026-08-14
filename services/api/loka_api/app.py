@@ -448,8 +448,21 @@ def create_app(world: World | None = None) -> FastAPI:
                 for name in eng.entity_types()
             },
             "relations": _relation_summaries(eng),
+            # A = Au ⊎ Ac, and each action says which half it is in. Describing Ω is not the
+            # same as proposing: an uncontrollable action belongs in the description of the
+            # world, and is filtered out where actions are proposed.
             "actions": [
-                {"name": a.name, "verb": a.verb, "target": a.target, "guard": a.guard}
+                {
+                    "name": a.name,
+                    "verb": a.verb,
+                    "target": a.target,
+                    "guard": a.guard,
+                    "controllable": a.controllable,
+                    "norms": [
+                        {"name": n.name, "status": str(n.status), "when": n.when}
+                        for n in eng.norms_for(a.name)
+                    ],
+                }
                 for a in eng.action_types()
             ],
         }

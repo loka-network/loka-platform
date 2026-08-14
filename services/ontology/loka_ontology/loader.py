@@ -16,6 +16,8 @@ from .model import (
     BaseType,
     Cardinality,
     EntityType,
+    Norm,
+    NormStatus,
     Ontology,
     Property,
     Relation,
@@ -112,6 +114,27 @@ def _parse(raw: dict[str, Any]) -> Ontology:
                 target=item["target"],
                 guard=item.get("guard", ""),
                 effect=item.get("effect", ""),
+                controllable=bool(item.get("controllable", True)),
+            )
+        )
+
+    norms: list[Norm] = []
+    for item in raw.get("norms", []) or []:
+        raw_status = str(item["status"])
+        try:
+            status = NormStatus(raw_status)
+        except ValueError:
+            allowed = ", ".join(sorted(s.value for s in NormStatus))
+            raise OntologyLoadError(
+                f"norm {item.get('name', '?')} has status {raw_status!r}; expected one of {allowed}"
+            ) from None
+        norms.append(
+            Norm(
+                name=str(item.get("name") or f"{item['action']}:{raw_status}"),
+                action=str(item["action"]),
+                status=status,
+                when=str(item.get("when", "")),
+                rationale=str(item.get("rationale", "")),
             )
         )
 
@@ -122,6 +145,7 @@ def _parse(raw: dict[str, Any]) -> Ontology:
         relations=relations,
         constraints=constraints,
         actions=actions,
+        norms=norms,
     )
     _validate_references(onto)
     return onto
@@ -177,6 +201,33 @@ def _validate_references(onto: Ontology) -> None:
     _check_no_cycles(onto)
     _check_override_compatibility(onto)
     _check_relation_keys(onto)
+    _check_norms(onto)
+
+
+def _check_norms(onto: Ontology) -> None:
+    """A norm must govern a declared, controllable action (CΩ R9, R10).
+
+    R9 — an undeclared action. A norm naming an action Ω does not define is a rule about nothing:
+    it can never fire, so it silently grants exactly the permission it was written to withhold.
+    Catching it at load time is the difference between a governed system and one that believes
+    it is governed.
+
+    R10 — an uncontrollable action. N(s, ac) is defined on the controllable half of A. Obliging
+    or forbidding something nobody chose has no addressee; whoever wrote it meant something else,
+    and should be told rather than have it accepted and ignored.
+    """
+    by_name = {a.name: a for a in onto.actions}
+    for n in onto.norms:
+        action = by_name.get(n.action)
+        if action is None:
+            raise OntologyLoadError(
+                f"norm {n.name} governs action {n.action}, which is not defined"
+            )
+        if not action.controllable:
+            raise OntologyLoadError(
+                f"norm {n.name} governs {n.action}, which is uncontrollable (in Au); "
+                "norms are defined on controllable actions"
+            )
 
 
 def _check_relation_keys(onto: Ontology) -> None:

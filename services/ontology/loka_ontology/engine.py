@@ -15,7 +15,16 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
 
-from .model import ActionType, BaseType, Cardinality, Ontology, Property, Relation, VerbClass
+from .model import (
+    ActionType,
+    BaseType,
+    Cardinality,
+    Norm,
+    Ontology,
+    Property,
+    Relation,
+    VerbClass,
+)
 
 
 @dataclass(frozen=True)
@@ -70,6 +79,16 @@ class OntologyEngine:
     def action_types(self) -> list[ActionType]:
         """All action types A (Ω's 4th primitive) — consumed by the action layer."""
         return list(self._onto.actions)
+
+    def controllable_actions(self) -> list[ActionType]:
+        """Ac — the actions this system may perform. Au (environment changes) is excluded here
+        because only Ac can be proposed, obliged, or forbidden."""
+        return [a for a in self._onto.actions if a.controllable]
+
+    def norms_for(self, action_name: str) -> list[Norm]:
+        """N restricted to one action. Evaluating ``when`` against a state is the caller's job:
+        the ontology declares the norms, it does not hold the world."""
+        return [n for n in self._onto.norms if n.action == action_name]
 
     def subtypes_of(self, name: str) -> list[str]:
         """All transitive descendants of ``name`` along ⪯ (excluding itself).

@@ -22,7 +22,18 @@ def test_scenario_exposes_the_parts_of_omega_a_single_table_cannot_use() -> None
         "contains", "of_product", "fulfilled_by", "placed_by",
     }
     assert all(r["via"] for r in body["relations"])
-    assert {a["name"] for a in body["actions"]} == {"ShipStandard", "SuspendSeller"}
+    # A = Au ⊎ Ac: the environment's half is described, not offered
+    by_name = {a["name"]: a for a in body["actions"]}
+    assert set(by_name) == {"ShipStandard", "NotifyDelay", "SuspendSeller", "CarrierStrike"}
+    assert by_name["CarrierStrike"]["controllable"] is False
+    assert by_name["ShipStandard"]["controllable"] is True
+
+    # N is carried with the action it governs, so a reader sees the obligation next to the
+    # guard rather than having to know the two are different kinds of rule
+    assert by_name["NotifyDelay"]["norms"] == [
+        {"name": "LateOrdersMustBeDisclosed", "status": "mandatory", "when": "delay_days >= 3"}
+    ]
+    assert by_name["CarrierStrike"]["norms"] == []  # nothing to oblige: nobody chooses it
 
 
 def test_route_is_derived_not_hand_written() -> None:

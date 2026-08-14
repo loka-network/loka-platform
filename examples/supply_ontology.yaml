@@ -71,6 +71,7 @@ verbs:
 # C: which entity types a verb may act on at all.
 constraints:
   - {verb: SHIP_STANDARD,  agent_must_be: Seller, target_must_be: [Product]}
+  - {verb: NOTIFY_DELAY,   agent_must_be: Seller, target_must_be: [Customer]}
   - {verb: SUSPEND_SELLER, agent_must_be: Seller, target_must_be: [Seller]}
 
 actions:
@@ -80,8 +81,43 @@ actions:
     guard: "weight_g <= 10000"
     effect: "the product is dispatched on the standard service"
 
+  - name: NotifyDelay
+    verb: NOTIFY_DELAY
+    target: Customer
+    guard: "delay_days >= 1"
+    effect: "the customer is told the order is late and given a revised date"
+
   - name: SuspendSeller
     verb: SUSPEND_SELLER
     target: Seller
     guard: "on_time_rate < 0.8"
     effect: "the seller is suspended from the marketplace pending review"
+
+  # Au: the environment's half of A. Carriers strike; nobody here decides it. It is declared so
+  # its effect can be reasoned about, and it can never be proposed or governed by a norm.
+  - name: CarrierStrike
+    verb: SHIP_STANDARD
+    target: Product
+    controllable: false
+    effect: "the carrier stops accepting shipments in the affected region"
+
+# N: N(s, ac) -> permitted | mandatory | forbidden. Distinct from a guard, which says whether an
+# action *can* run. These say whether it *may*, *must*, or *must not*.
+norms:
+  - name: LateOrdersMustBeDisclosed
+    action: NotifyDelay
+    status: mandatory
+    when: "delay_days >= 3"
+    rationale: >
+      Consumer law obliges the marketplace to disclose a material delay. Without a mandatory
+      status the system could only record that notifying is allowed — it could never report that
+      staying silent is a violation, which is the case that matters.
+
+  - name: NoSuspensionWhileDisputed
+    action: SuspendSeller
+    status: forbidden
+    when: "open_disputes >= 1"
+    rationale: >
+      A seller contesting the metric may not be suspended on that metric before the dispute is
+      heard. This is not a precondition of suspending — suspension would work fine — it is a
+      rule about what is allowed, so it belongs in N, not in the guard.

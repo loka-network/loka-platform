@@ -124,6 +124,12 @@ class ActionType:
     ``guard`` a precondition that must hold in the world state before it may run; ``effect`` the
     state change it produces. The declarative guard/effect strings are the starting point; the
     action layer evaluates them and gates execution.
+
+    ``controllable`` splits the action set A = Au ⊎ Ac. A controllable action is one this system
+    performs; an uncontrollable one is a change the environment makes, modelled so that its
+    effect can be reasoned about but never proposed. The split is what makes norms well-formed:
+    a norm answers "what must/may/must not be *done*", and there is no one to address that to
+    for a change nobody chose.
     """
 
     name: str
@@ -131,14 +137,46 @@ class ActionType:
     target: str
     guard: str = ""
     effect: str = ""
+    controllable: bool = True
+
+
+class NormStatus(StrEnum):
+    """Deontic status of a controllable action in a state: N(s, ac)."""
+
+    PERMITTED = "permitted"  # may be done — the default when no norm speaks
+    MANDATORY = "mandatory"  # must be done; NOT doing it is itself a violation
+    FORBIDDEN = "forbidden"  # must not be done
+
+
+@dataclass(frozen=True)
+class Norm:
+    """One norm: in states satisfying ``when``, this action has this deontic status.
+
+    Separate from an action's ``guard``, and the distinction is the whole point. A guard says
+    whether an action *can* run — a precondition of the mechanism. A norm says whether it *may*,
+    *must*, or *must not* — an obligation, which holds whether or not anyone honours it. An
+    unsatisfied guard means the action is not available; a violated norm means something is
+    wrong. Collapsing them loses the ability to say a system did something it was not allowed to
+    do, and — the case a two-valued permitted/forbidden model cannot state at all — that a system
+    failed to do something it was obliged to do.
+
+    ``when`` empty means the norm holds unconditionally.
+    """
+
+    name: str
+    action: str  # the ActionType this norm governs
+    status: NormStatus
+    when: str = ""
+    rationale: str = ""
 
 
 @dataclass
 class Ontology:
-    """A complete ontology Ω = (E, V, R, ⪯, CΩ, A).
+    """A complete ontology Ω = (E, V, R, ⪯, CΩ, A, N).
 
     The subtype order ⪯ is encoded in each EntityType's ``subtype_of`` field. ``actions`` (A) is
-    the action-type set — the 4th primitive.
+    the action-type set — the 4th primitive — partitioned into Au ⊎ Ac by ``controllable``.
+    ``norms`` (N) assigns each controllable action a deontic status per state.
     """
 
     version: str
@@ -147,3 +185,4 @@ class Ontology:
     relations: list[Relation] = field(default_factory=list)
     constraints: list[TypingConstraint] = field(default_factory=list)
     actions: list[ActionType] = field(default_factory=list)
+    norms: list[Norm] = field(default_factory=list)
