@@ -1,5 +1,6 @@
 # Keep the build context to what the image actually needs.
-# Note: examples/supply_data IS included — the supply scenario reads those CSVs at runtime.
+# Note: examples/supply_sample IS included — the supply scenario reads those CSVs at runtime,
+# and they are what makes the image work with no dataset configured.
 
 .git/
 .github/
@@ -17,6 +18,8 @@ htmlcov/
 .vscode/
 .idea/
 
-# Source tables for the supply scenario: read once by build_supply_data.py to derive
-# examples/supply_data, never at runtime. Excluding them keeps ~44MB out of the image.
+# Build-time only, never read at runtime: the published source tables (~44MB) and the full
+# per-entity set derived from them (~31MB). The image serves examples/supply_sample; point
+# LOKA_SUPPLY_DATA at a mounted volume to serve the full set instead.
 examples/olist_raw/
+examples/supply_full/
