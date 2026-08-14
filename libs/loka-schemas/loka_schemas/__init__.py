@@ -37,7 +37,7 @@ from .mission import (
     WelfareFunctional,
     WelfareTerm,
 )
-from .ports import CausalSlicer, OntologyView, StateView
+from .ports import CausalSlicer, OntologyView, StateStore, StateView
 from .query import TypedQuery
 from .scenario import Scenario
 from .wqt import ManifestPins, ScenarioStatePackage, ScenarioWorldModel
@@ -65,6 +65,7 @@ __all__ = [
     "TypedQuery",
     # ports (swappable-backend interfaces)
     "OntologyView",
+    "StateStore",
     "StateView",
     "CausalSlicer",
     # causal

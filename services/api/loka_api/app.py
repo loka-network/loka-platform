@@ -330,9 +330,13 @@ def create_app(world: World | None = None) -> FastAPI:
         return rec.as_dict()
 
     def _panel_or_500() -> list[dict[str, Any]]:
-        panel = app.state.__dict__.setdefault("_health_panel", _load_health_panel())
+        panel: list[dict[str, Any]] | None = app.state.__dict__.setdefault(
+            "_health_panel", _load_health_panel()
+        )
         if not panel:
-            raise HTTPException(status_code=500, detail="health panel not found (set LOKA_HEALTH_PANEL)")
+            raise HTTPException(
+                status_code=500, detail="health panel not found (set LOKA_HEALTH_PANEL)"
+            )
         return panel
 
     @app.get("/scenario")
@@ -454,7 +458,7 @@ def create_app(world: World | None = None) -> FastAPI:
 
     @app.get("/kb")
     def kb_endpoint() -> dict[str, Any]:
-        """Show KB.DATA (facts, growing as queries are answered) and KB.METHODS (registered methods).
+        """Show KB.DATA (facts, growing as queries are answered) and KB.METHODS.
 
         ``data`` is the actual world only — observed facts, each with its provenance.
         ``all_facts`` additionally includes counterfactual worlds produced by ``orders`` acts,
@@ -472,7 +476,7 @@ def create_app(world: World | None = None) -> FastAPI:
 
     @app.post("/project")
     def project_endpoint(req: ProjectRequest) -> dict[str, Any]:
-        """Workflow B / KB.METHODS: project under-5 mortality if a country changes health spending."""
+        """Workflow B / KB.METHODS: project mortality when a country changes health spending."""
         panel = _panel_or_500()
         iso = req.country.upper()
         if not any(r["iso3"] == iso for r in panel):
@@ -606,7 +610,9 @@ def create_app(world: World | None = None) -> FastAPI:
                 "ontology_version": omega_version,
                 "formalized_query": {"country": iso, "attribute": attribute},
                 "retrieved": content,
-                "speech_act": {"act": "asks", "query": q_ask.render(), "response": informs.render()},
+                "speech_act": {
+                    "act": "asks", "query": q_ask.render(), "response": informs.render(),
+                },
             }
 
         # orders branch: change the dial, apply the projection method.

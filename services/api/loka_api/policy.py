@@ -48,7 +48,8 @@ def decide(wqt: ScenarioWorldModel, scenarios: list[Scenario]) -> DecisionMemo:
         query_id=wqt.query_id,
         recommendation=rec,
         rationale=(
-            f"Picked the best-outcome admissible scenario under welfare terms {welfare_terms or 'none'}; "
+            f"Picked the best-outcome admissible scenario under welfare terms "
+            f"{welfare_terms or 'none'}; "
             f"hard constraints enforced: {constraints or 'none'}. "
             "(Basic welfare/constraint policy — full PolicyFormer S6 not implemented.)"
         ),

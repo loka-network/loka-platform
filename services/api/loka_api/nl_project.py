@@ -83,14 +83,17 @@ def formalize_query(
     text = "".join(getattr(b, "text", "") for b in resp.content if getattr(b, "type", "") == "text")
     start, end = text.find("{"), text.rfind("}")
     obj = json.loads(text[start : end + 1]) if start != -1 else {}
-    country, new_spending, attribute = obj.get("country"), obj.get("new_spending"), obj.get("attribute")
+    country = obj.get("country")
+    new_spending = obj.get("new_spending")
+    attribute = obj.get("attribute")
     if as_spending(new_spending) is not None:
         intent = "order"
     elif attribute:
         intent = "ask"
     else:
         intent = "none"
-    return {"intent": intent, "country": country, "new_spending": new_spending, "attribute": attribute}
+    return {"intent": intent, "country": country,
+            "new_spending": new_spending, "attribute": attribute}
 
 
 def resolve_country(panel: Sequence[Mapping[str, Any]], name_or_iso: Any) -> str | None:
@@ -98,10 +101,10 @@ def resolve_country(panel: Sequence[Mapping[str, Any]], name_or_iso: Any) -> str
     if not name_or_iso:
         return None
     q = str(name_or_iso).strip().lower()
-    iso = {r["iso3"].lower(): r["iso3"] for r in panel}
+    iso: dict[str, str] = {str(r["iso3"]).lower(): str(r["iso3"]) for r in panel}
     if q in iso:
         return iso[q]
-    names = {r["country"].lower(): r["iso3"] for r in panel}
+    names: dict[str, str] = {str(r["country"]).lower(): str(r["iso3"]) for r in panel}
     if q in names:
         return names[q]
     for nm, code in names.items():  # loose contains-match ("thailand" vs "thailand, kingdom of")

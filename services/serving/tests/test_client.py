@@ -9,13 +9,15 @@ from loka_serving.client import OpenAICompatClient, default_model, make_llm_clie
 
 
 def test_openai_compat_adapter_wraps_response() -> None:
-    # A fake OpenAI-style client (as vLLM would expose): chat.completions.create -> choices[0].message.content
+    # A fake OpenAI-style client (as vLLM exposes): chat.completions.create -> choices[0]
     captured: dict[str, object] = {}
 
     def create(**kw: object) -> object:
         captured.update(kw)
         return SimpleNamespace(
-            choices=[SimpleNamespace(message=SimpleNamespace(content='{"task_type": "descriptive"}'))]
+            choices=[
+                SimpleNamespace(message=SimpleNamespace(content='{"task_type": "descriptive"}'))
+            ]
         )
 
     fake_openai = SimpleNamespace(
@@ -33,7 +35,9 @@ def test_openai_compat_adapter_wraps_response() -> None:
     assert resp.content[0].type == "text"
     assert resp.content[0].text == '{"task_type": "descriptive"}'
     # system was folded into messages for the OpenAI schema.
-    assert captured["messages"][0] == {"role": "system", "content": "you are terse"}
+    messages = captured["messages"]
+    assert isinstance(messages, list)
+    assert messages[0] == {"role": "system", "content": "you are terse"}
     assert captured["model"] == "Qwen3-32B"
 
 

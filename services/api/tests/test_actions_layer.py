@@ -1,4 +1,4 @@
-"""The action layer proposes a governed action from the ontology, gated and awaiting confirmation."""
+"""The action layer proposes a governed action from Ω, gated and awaiting confirmation."""
 
 from __future__ import annotations
 

@@ -140,7 +140,8 @@ class LLMBuilder:
         "Extract an ontology from the domain text. Reply with ONLY a JSON object: "
         '{"entities": [{"name": <CamelCase>, "subtype_of": <name|null>, '
         '"attributes": [{"name": <str>, "type": "string|integer|double|boolean|timestamp"}]}], '
-        '"relations": [[from, verb, to], ...], "verbs": [[NAME, "factual|communicative|institutional"]], '
+        '"relations": [[from, verb, to], ...], '
+        '"verbs": [[NAME, "factual|communicative|institutional"]], '
         '"data_needs": [...], "method_needs": [...]}. No prose, no code fences.'
     )
 
@@ -175,7 +176,9 @@ class LLMBuilder:
                 if isinstance(a, dict) and a.get("name")
             )
             entities.append(
-                EntityDraft(name=e["name"], subtype_of=e.get("subtype_of") or None, attributes=attrs)
+                EntityDraft(
+                    name=e["name"], subtype_of=e.get("subtype_of") or None, attributes=attrs
+                )
             )
         rels = tuple(
             (r[0], r[1], r[2])
@@ -236,7 +239,7 @@ def build(texts: Sequence[str], builder: OntologyBuilder | None = None) -> KBSpe
 
     Raises ``OntologyLoadError`` if the proposed ontology is inconsistent (the type system
     disposing of a bad proposal) — the caller sees a structured failure, never a silent bad KB.
-    The KBSpec carries the slide-7 Ontology Analysis in ``facets`` (factual/cognitive/communication).
+    The KBSpec carries the Ontology Analysis in ``facets`` (factual/cognitive/communication).
     """
     builder = builder or KeywordBuilder()
     draft = builder.propose(texts)

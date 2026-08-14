@@ -18,7 +18,8 @@ def test_orders_renders_like_slide7() -> None:
         args={"new_spending": 150.0},
     )
     r = q.render()
-    assert r.startswith("orders(user, loka, project[Country,health_exp_per_capita->under5_mortality]")
+    assert r.startswith(
+        "orders(user, loka, project[Country,health_exp_per_capita->under5_mortality]")
     assert "under5_mortality(ZMB, project(new_spending=150.0))" in r
 
 

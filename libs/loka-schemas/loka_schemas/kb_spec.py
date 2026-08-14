@@ -19,4 +19,5 @@ class KBSpec:
     ontology_yaml: str  # a definition that loka_ontology.load_ontology_str accepts
     data_needs: tuple[str, ...] = ()  # KB.DATA: what data the ontology requires
     method_needs: tuple[str, ...] = ()  # KB.METHODS: what computations queries will need
-    facets: Mapping[str, tuple[str, ...]] = field(default_factory=dict)  # factual/cognitive/communication
+    # the three facets: factual / cognitive / communication
+    facets: Mapping[str, tuple[str, ...]] = field(default_factory=dict)

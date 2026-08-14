@@ -68,7 +68,8 @@ class LLMBehaviorEngine:
         resp = self._client.messages.create(
             model=self._model,
             max_tokens=256,
-            system="You act AS the given persona in a simulation. Output only the action, no meta-commentary.",
+            system="You act AS the given persona in a simulation. "
+                   "Output only the action, no meta-commentary.",
             messages=[{"role": "user", "content": prompt}],
         )
         text = "".join(

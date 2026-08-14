@@ -3,9 +3,9 @@
 Slide 7 does not treat a query as a flat parameter bag — it is a *speech act* q with a speaker,
 a listener, a typed variable, and a predicate, dispatched to KB.DATA or KB.METHODS:
 
-    q = asks(sp, li, ?x:T P(x))                -> if P in KB.DATA:    retrieve; informs(li,sp, P(x)=v)
+    q = asks(sp, li, ?x:T P(x))              -> P in KB.DATA:    retrieve; informs(li,sp,P(x)=v)
                                                    else               informs(li,sp, "don't know")
-    q = orders(sp, li, m[in,out] P(x, m(x)))   -> if m in KB.METHODS: apply m; informs(li,sp, P(x,m(x)))
+    q = orders(sp, li, m[in,out] P(x,m(x)))  -> m in KB.METHODS: apply;   informs(li,sp,P(x,m(x)))
                                                    else               informs(li,sp, "don't know")
 
     Runtime: for each informs(li,sp,P) with a concrete P  ->  add P to KB.DATA.
@@ -35,7 +35,7 @@ ACTUAL: str | None = None
 
 @dataclass(frozen=True)
 class Asks:
-    """asks(sp, li, ?x:T P(x)) — retrieve DATA attribute ``predicate`` of entity ``entity_id``:``var_type``."""
+    """asks(sp, li, ?x:T P(x)) — retrieve ``predicate`` of ``entity_id`` of type ``var_type``."""
 
     speaker: str
     listener: str
@@ -52,7 +52,7 @@ class Asks:
 
 @dataclass(frozen=True)
 class Orders:
-    """orders(sp, li, m[in,out] P(x, m(x))) — apply method m, then report predicate P of the result."""
+    """orders(sp, li, m[in,out] P(x, m(x))) — apply m, then report predicate P of the result."""
 
     speaker: str
     listener: str
@@ -74,7 +74,7 @@ class Orders:
 
 @dataclass(frozen=True)
 class Informs:
-    """informs(li, sp, content) — the listener's reply. ``content`` may be the string "don't know"."""
+    """informs(li, sp, content) — the reply. ``content`` may be the string "don't know"."""
 
     speaker: str    # li — the informer
     listener: str   # sp — the original asker

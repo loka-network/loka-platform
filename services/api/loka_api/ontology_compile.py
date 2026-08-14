@@ -15,7 +15,6 @@ from loka_causal import CausalGraph
 from loka_compiler import compile_wqt
 from loka_ontology import (
     BaseType,
-    Cardinality,
     EntityType,
     Ontology,
     OntologyEngine,

@@ -52,7 +52,7 @@ def test_ask_end_to_end_with_fake_llm(monkeypatch: pytest.MonkeyPatch) -> None:
     client = TestClient(create_app())
     resp = client.post(
         "/ask",
-        json={"question": "If Zambia raises health spending to $150, what happens to child mortality?"},
+        json={"question": "If Zambia raises health spending to $150, what of mortality?"},
     )
     if resp.status_code == 500:  # real panel not present in this env — skip
         return

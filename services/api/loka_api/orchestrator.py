@@ -12,7 +12,7 @@ response says, per stage, whether it is real or a stub — no pretending.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fastapi.encoders import jsonable_encoder
 from loka_compiler import compile_wqt
@@ -23,6 +23,9 @@ from .methods import resolve
 from .policy import decide
 from .simulation import simulate
 from .world import World
+
+if TYPE_CHECKING:  # the grounding package is an optional dependency at runtime
+    from loka_grounding.proposer import QueryProposer
 
 
 def answer(world: World, question: str, *, query_id: str) -> dict[str, Any]:
@@ -91,7 +94,7 @@ def _formalize(world: World, question: str, *, query_id: str) -> tuple[TypedQuer
     return q_star, f"real ({mode})"
 
 
-def _make_proposer(entity_types: list[str]) -> tuple[object, str]:
+def _make_proposer(entity_types: list[str]) -> tuple[QueryProposer, str]:
     """Pick the grounding proposer: LLM when opted in and available, else keyword reference."""
     import os
 

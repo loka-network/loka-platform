@@ -66,7 +66,8 @@ def resolve(q_star: TypedQuery, wqt: ScenarioWorldModel) -> dict[str, Any]:
     act, kind, method_name = _ACT_BY_TASK.get(q_star.task_type, ("asks", "data", None))
     if kind == "data":
         # asks -> retrieve(d from KB.DATA): the state slice already bound into W(q,t)
-        return {"act": act, "kind": kind, "method": None, "facts": dict(wqt.state_package.state_slice)}
+        facts = dict(wqt.state_package.state_slice)
+        return {"act": act, "kind": kind, "method": None, "facts": facts}
     # orders -> retrieve(m from KB.METHODS); apply
     entry = _REGISTRY.get(method_name or "")
     if entry is None:
@@ -78,6 +79,7 @@ def resolve(q_star: TypedQuery, wqt: ScenarioWorldModel) -> dict[str, Any]:
 def method_catalog() -> list[dict[str, Any]]:
     """The KB.METHODS catalogue (for introspection / a /methods endpoint later)."""
     return [
-        {"name": m.name, "description": m.description, "in_types": list(m.in_types), "out_type": m.out_type}
+        {"name": m.name, "description": m.description,
+         "in_types": list(m.in_types), "out_type": m.out_type}
         for m, _ in _REGISTRY.values()
     ]

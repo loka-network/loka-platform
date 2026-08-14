@@ -1,4 +1,4 @@
-"""Controlled projection — a generic KB.METHODS predictor (the professor's METHODS / EcoFormer slot).
+"""Controlled projection — a generic KB.METHODS predictor.
 
 Fits ``outcome ~ f(dial) + controls`` on a panel via pure-Python OLS, then projects the outcome
 when the dial moves to a new value — holding the target's own control values fixed and ANCHORED to
@@ -102,7 +102,7 @@ def controlled_projection(
     # OLS: beta = (X'X)^-1 X'y
     XtX = [[0.0] * p for _ in range(p)]
     Xty = [0.0] * p
-    for x, y in zip(Xs, ys):
+    for x, y in zip(Xs, ys, strict=True):
         for i in range(p):
             Xty[i] += x[i] * y
             for j in range(p):
@@ -110,10 +110,10 @@ def controlled_projection(
     beta = _solve(XtX, Xty)
 
     def predict(x: list[float]) -> float:
-        return sum(bi * xi for bi, xi in zip(beta, x))
+        return sum(bi * xi for bi, xi in zip(beta, x, strict=True))
 
     # fit quality
-    rss = sum((y - predict(x)) ** 2 for x, y in zip(Xs, ys))
+    rss = sum((y - predict(x)) ** 2 for x, y in zip(Xs, ys, strict=True))
     my = sum(ys) / n
     tss = sum((y - my) ** 2 for y in ys) or 1.0
     r2 = 1.0 - rss / tss
@@ -148,7 +148,7 @@ def controlled_projection(
     # A prediction interval for the *level* — how far one country can sit from the fitted
     # surface. Reported for context; it is not the interval the decision should be read against.
     z = _solve(XtX, x_new)
-    leverage = sum(a * b for a, b in zip(x_new, z))
+    leverage = sum(a * b for a, b in zip(x_new, z, strict=True))
     se_level = math.sqrt(max(s2 * (1.0 + leverage), 0.0))
     lvl_lo, lvl_hi = point - 1.96 * se_level, point + 1.96 * se_level
 

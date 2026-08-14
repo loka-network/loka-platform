@@ -23,10 +23,11 @@ from loka_schemas import (
     EffectDistribution,
     HardConstraint,
     IdentificationStatus,
+    KBSpec,
     MemoryAdapter,
     MissionProfile,
     OntologyView,
-    StateView,
+    StateStore,
     TypedPredicate,
     WelfareFunctional,
     WelfareTerm,
@@ -39,7 +40,7 @@ class World:
     """What a deployment is configured with. Fields are ports, so backends are swappable."""
 
     engine: OntologyView
-    state: StateView
+    state: StateStore
     mission: MissionProfile
     causal: CausalSlicer | None = None
     backend: str = "in-memory"
@@ -124,7 +125,7 @@ def build_default_world() -> World:
     )
 
 
-def world_from_kbspec(spec: object) -> World:
+def world_from_kbspec(spec: KBSpec) -> World:
     """Build a queryable World from a Workflow-A KBSpec — closing the build->answer loop.
 
     The built ontology comes from ``spec.ontology_yaml``; state and causal start empty (Workflow
