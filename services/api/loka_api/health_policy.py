@@ -68,6 +68,45 @@ def _explanatory_power(projection: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _admissibility(projection: dict[str, Any]) -> dict[str, Any]:
+    """Whether the evidence behind this projection may justify a recommendation.
+
+    An identification status records *how* an effect was established; the admissibility matrix
+    records what each kind of establishment is good enough for. They are separate questions, and
+    a system that reports the first without applying the second leaves the reader to know the
+    rule. A projection fitted across observed data is ``observational`` — correlational, with no
+    identification strategy — and the matrix does not admit that as the justification for a
+    recommendation, only for conditioning a forecast.
+
+    The check is reported rather than enforced by refusal: the number is still useful, and the
+    caller may be asking for conditioning. What must not happen is a recommendation resting on
+    evidence the matrix rejects, without saying so.
+    """
+    from loka_causal import is_admissible
+    from loka_schemas import IdentificationStatus, UseCase
+
+    label = projection.get("identification", "observational")
+    try:
+        status = IdentificationStatus(label)
+    except ValueError:
+        # An unrecognised label is admitted for nothing. Treating it as safe would make a typo
+        # the way to bypass the matrix.
+        return {
+            "identification": label,
+            "recognised": False,
+            "admissible_for": [],
+            "may_justify_a_recommendation": False,
+        }
+
+    admitted = [u.value for u in UseCase if is_admissible(status, u)]
+    return {
+        "identification": status.value,
+        "recognised": True,
+        "admissible_for": admitted,
+        "may_justify_a_recommendation": UseCase.BLOCK_A_JUSTIFICATION.value in admitted,
+    }
+
+
 def _audit_inputs(
     projection: dict[str, Any], *, iso: str, ontology_version: str, method_name: str
 ) -> dict[str, Any]:
@@ -169,12 +208,25 @@ def select_and_decide(
                 f"(r²={power['r2']}, n={power['n']}): the estimate is precise about a "
                 f"relationship that explains little of any individual case."
             )
+
+    admissibility = _admissibility(projection)
+    if not admissibility.get("may_justify_a_recommendation", False):
+        # Said in the recommendation, not left in a field: a reader who takes the sentence at
+        # face value would otherwise have to know the admissibility rule to apply it themselves.
+        allowed = ", ".join(admissibility["admissible_for"]) or "no declared use"
+        rec += (
+            f" This rests on {admissibility['identification']} evidence, which the admissibility "
+            f"matrix does not accept as the justification for a recommendation — it is admitted "
+            f"for {allowed}. Read the figure as conditioning, not as grounds for acting."
+        )
+
     return {
         "recommendation": rec,
         "effect": delta,
         "effect_interval_95": projection.get("effect_interval_95"),
         "effect_distinguishable_from_zero": significant,
         "explanatory_power": power,
+        "admissibility": admissibility,
         "welfare_objective": f"minimize {projection['outcome']}",
         "chosen_scenario": chosen["scenario_id"],
         "contingency_scenario": "adverse",

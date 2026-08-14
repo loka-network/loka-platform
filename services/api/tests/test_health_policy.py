@@ -130,3 +130,42 @@ def test_audit_hash_changes_with_ontology_version() -> None:
     b = evaluate_and_decide(_PROJ, iso="ZMB", ontology_version="health-v2",
                           guard="g", method_name="m")["decision"]["audit_manifest"]
     assert a != b  # a different Ω -> a different audit trail
+
+
+def test_observational_evidence_may_not_justify_a_recommendation() -> None:
+    """The identification label is applied, not merely reported: a projection fitted on observed
+    data is correlational, and the admissibility matrix does not admit that as grounds to act."""
+    d = evaluate_and_decide(_PROJ, iso="ZMB", ontology_version="health-v1",
+                            guard="g", method_name="m")["decision"]
+    a = d["admissibility"]
+    assert a["identification"] == "observational"
+    assert a["may_justify_a_recommendation"] is False
+    assert a["admissible_for"] == ["forecast_conditioning"]
+    assert "does not accept as the justification for a recommendation" in d["recommendation"]
+
+
+def test_quasi_experimental_evidence_carries_no_such_caveat() -> None:
+    """A design that does identify the effect is admitted, and the memo says nothing extra."""
+    identified = {**_PROJ, "identification": "quasi_experimental"}
+    d = evaluate_and_decide(identified, iso="ZMB", ontology_version="health-v1",
+                            guard="g", method_name="m")["decision"]
+    assert d["admissibility"]["may_justify_a_recommendation"] is True
+    assert "block_a_justification" in d["admissibility"]["admissible_for"]
+    assert "admissibility matrix" not in d["recommendation"]
+
+
+def test_a_simulator_derived_claim_is_admitted_for_nothing() -> None:
+    """Output of the simulator is quarantined: it conditions nothing and justifies nothing."""
+    simulated = {**_PROJ, "identification": "simulator_derived"}
+    a = evaluate_and_decide(simulated, iso="ZMB", ontology_version="health-v1",
+                            guard="g", method_name="m")["decision"]["admissibility"]
+    assert a["admissible_for"] == []
+    assert a["may_justify_a_recommendation"] is False
+
+
+def test_an_unrecognised_label_is_reported_rather_than_assumed_safe() -> None:
+    a = evaluate_and_decide({**_PROJ, "identification": "vibes"}, iso="ZMB",
+                            ontology_version="health-v1", guard="g",
+                            method_name="m")["decision"]["admissibility"]
+    assert a["recognised"] is False
+    assert a["may_justify_a_recommendation"] is False
