@@ -29,6 +29,10 @@ entities:
   - type: Customer
     properties:
       - {name: customer_id, type: string, required: true}
+      - {name: delay_days, type: integer}
+      - {name: open_disputes, type: integer}
+      - {name: channel_open, type: integer}
+      - {name: blackout, type: integer}
 verbs:
   - {name: NOTIFY_DELAY, class: communicative}
   - {name: SUSPEND_SELLER, class: institutional}
@@ -173,6 +177,23 @@ def test_a_norm_on_an_uncontrollable_action_is_refused() -> None:
     )
     with pytest.raises(OntologyLoadError, match="uncontrollable"):
         load_ontology_str(bad)
+
+
+def test_a_norm_conditioned_on_an_undeclared_attribute_is_refused() -> None:
+    """R11. The rule that catches a typo in a condition — and this one was written because the
+    supply ontology shipped with two: norms conditioned on ``delay_days`` and ``open_disputes``
+    when Ω declares ``days_late`` and nothing about disputes at all. Both could never fire, so
+    the forbidding one permitted, unconditionally, exactly what it was written to forbid."""
+    bad = _ONTOLOGY.replace('when: "delay_days >= 3"', 'when: "delya_days >= 3"')
+    with pytest.raises(OntologyLoadError, match="could never fire"):
+        load_ontology_str(bad)
+
+
+def test_r11_does_not_reject_a_condition_it_cannot_read() -> None:
+    """A prose condition is unevaluable, not wrong. It is already handled at runtime by leaving
+    the norm silent, which is visible; refusing to load would block a legitimate draft."""
+    ok = _ONTOLOGY.replace('when: "delay_days >= 3"', 'when: "the delay is material"')
+    load_ontology_str(ok)  # loads
 
 
 def test_an_unknown_deontic_status_names_what_is_allowed() -> None:

@@ -31,7 +31,7 @@ def test_scenario_exposes_the_parts_of_omega_a_single_table_cannot_use() -> None
     # N is carried with the action it governs, so a reader sees the obligation next to the
     # guard rather than having to know the two are different kinds of rule
     assert by_name["NotifyDelay"]["norms"] == [
-        {"name": "LateOrdersMustBeDisclosed", "status": "mandatory", "when": "delay_days >= 3"}
+        {"name": "LateOrdersMustBeDisclosed", "status": "mandatory", "when": "days_late >= 3"}
     ]
     assert by_name["CarrierStrike"]["norms"] == []  # nothing to oblige: nobody chooses it
 

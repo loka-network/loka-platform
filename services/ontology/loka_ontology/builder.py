@@ -204,7 +204,7 @@ class LLMBuilder:
 def analyze_facets(draft: OntologyDraft) -> dict[str, tuple[str, ...]]:
     """Decompose the draft into three facets.
 
-    Per slides 5 ("Factual Agent / Communicator / Institutor") and 8 (act taxonomy):
+    The three faces of a cognitive agent — factual, cognitive, communicative:
 
       * **Factual** — the objective/interobjective world: entity types, their typed attributes,
         relations, and factual verbs. This is the "what is" that KB.DATA stores.

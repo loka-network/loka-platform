@@ -6,6 +6,7 @@ consumed by the OntologyEngine.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -217,6 +218,7 @@ def _check_norms(onto: Ontology) -> None:
     and should be told rather than have it accepted and ignored.
     """
     by_name = {a.name: a for a in onto.actions}
+    declared = {p.name for e in onto.entities.values() for p in e.properties}
     for n in onto.norms:
         action = by_name.get(n.action)
         if action is None:
@@ -228,6 +230,27 @@ def _check_norms(onto: Ontology) -> None:
                 f"norm {n.name} governs {n.action}, which is uncontrollable (in Au); "
                 "norms are defined on controllable actions"
             )
+        # R11 — the condition must be about something Ω describes. A norm conditioned on an
+        # attribute that does not exist can never fire, which is the same failure as R9 and has
+        # the same consequence: it silently permits exactly what it was written to forbid, while
+        # the system goes on reporting that the rule is in force. Only a condition of the
+        # recognised numeric shape is checked; anything else is already treated as unevaluable
+        # at runtime, which is visible rather than silently permissive.
+        attribute = _condition_attribute(n.when)
+        if attribute is not None and attribute not in declared:
+            raise OntologyLoadError(
+                f"norm {n.name} is conditioned on {attribute!r}, which no entity declares; "
+                "it could never fire, so the action would be unconditionally permitted"
+            )
+
+
+_CONDITION_RE = re.compile(r"^\s*([A-Za-z_][\w.]*)\s*(?:>=|<=|==|>|<)\s*-?\d+(?:\.\d+)?\s*$")
+
+
+def _condition_attribute(condition: str) -> str | None:
+    """The attribute a simple numeric condition tests, else None (not of a shape we can read)."""
+    m = _CONDITION_RE.match(condition or "")
+    return m.group(1).rsplit(".", 1)[-1] if m else None
 
 
 def _check_relation_keys(onto: Ontology) -> None:

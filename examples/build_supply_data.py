@@ -1,29 +1,45 @@
-"""Turn the raw Olist tables into one CSV per entity type declared in supply-v2.
+"""Build the supply dataset from the published Olist tables. One script, two steps.
+
+    step 1   olist_raw/  ->  supply_full/     one CSV per entity type in Ω
+    step 2   supply_full/ ->  supply_sample/  a small cut, committed to the repository
 
 Source: the Olist Brazilian e-commerce dataset, published by Olist itself
 (github.com/olist/work-at-olist-data). Real marketplace records, anonymised by the publisher.
+Five tables, ~44MB, downloaded by ``--download``; not kept in the repository.
 
-The output is the shape the platform reads: ``<out>/<EntityType>.csv``, one file per entity, keyed
-so the relations in Ω can be walked by their declared ``via`` fields. Nothing is joined into a wide
-table here on purpose — a pre-joined table would answer the multi-hop questions before the
-ontology got a chance to, which is precisely what we want to demonstrate it doing.
+STEP 1 is not a rename. Ω declares six entity types and the source has five tables, because
+OrderItem is a modelling decision rather than a table: an order can hold several lines and one
+product may be sold by several sellers, so the seller belongs to the line, not to the product.
+Four columns are also computed here, since the source does not carry them:
 
-Two derived columns are computed rather than read, and both are stated in the ontology's
-descriptions:
+  Seller.on_time_rate     share of that seller's delivered orders that arrived by the promise
+  Seller.delivered_lines  the denominator of that rate
+  Order.days_late         delivered date minus promised date
+  Product.volume_cm3      length x height x width
 
-  Product.volume_cm3   length x height x width
-  Seller.on_time_rate  share of that seller's delivered lines that arrived by the promised date
+Those must be computed over the WHOLE dataset, which is why this step exists separately from
+step 2. A seller's punctuality worked out from the 5 of their 300 orders that happened to fall
+in a sample is not that seller's punctuality.
+
+STEP 2 exists because the full set is ~31MB and stays out of the repository, which left a clone
+unable to run the supply scenario at all — its endpoints returned 503 and its tests skipped, so
+the half of Ω a single table cannot exercise (relations, ⪯, norms) was unreachable without
+running this script first. The committed sample is 1.4MB and needs no network.
+
+The sample is chosen by following Ω's relations rather than by sampling each table: take a block
+of orders, then exactly the lines belonging to them, then exactly the products, sellers and
+customers those reference. Sampling tables independently would be smaller and would leave an
+OrderItem pointing at a Product that is not there — every declared relation dead-ending, which
+at runtime is indistinguishable from missing data. Orders are taken in file order, not at
+random, so the sample is byte-identical on every machine.
 
 A caveat worth carrying into any reading of the result: ``days_late`` is measured against the
 marketplace's own estimated delivery date, so a seller can look punctual because it was given a
 generous promise. This is a measurement-validity limit, not a data-quality one.
 
-The source tables are not kept in the repository (about 44MB, and freely downloadable);
-``--download`` fetches them first.
-
 Usage:
-    python examples/build_supply_data.py --download
-    LOKA_SUPPLY_DATA=examples/supply_data uvicorn loka_api.app:app
+    python examples/build_supply_data.py --download     # both steps
+    LOKA_SUPPLY_DATA=examples/supply_full uvicorn loka_api.app:app   # serve the full set
 """
 
 from __future__ import annotations
@@ -158,10 +174,19 @@ def build(raw: str, out: str, *, ontology: str) -> dict[str, int]:
             "seller_id": s["seller_id"],
             "seller_state": s.get("seller_state", ""),
             "on_time_rate": f"{on_time / total:.4f}" if total else "",
+            # The denominator, carried alongside the rate. A rate of 0.67 over three orders and
+            # over three hundred are not the same fact, and a norm that forbids acting on thin
+            # evidence has nothing to test unless the count survives into the data.
+            "delivered_lines": str(total),
         })
 
     # --- Product / BulkyProduct: the subtype is decided by the same threshold the guard uses ---
-    plain, bulky = [], []
+    # ⪯ is containment, not partition. Every BulkyProduct IS a Product, so a bulky row is
+    # written to BOTH files: Product carries the whole extent, BulkyProduct the subtype's.
+    # Splitting them into disjoint sets — which this did — makes the relation
+    # OrderItem --of_product--> Product dead-end on exactly the heavy items, and makes "all
+    # products" silently exclude the very rows the ShipStandard guard exists to catch.
+    all_products, bulky = [], []
     for p in products:
         w = _num(p.get("product_weight_g"))
         dims = [_num(p.get(f"product_{d}_cm")) for d in ("length", "height", "width")]
@@ -172,7 +197,9 @@ def build(raw: str, out: str, *, ontology: str) -> dict[str, int]:
             "volume_cm3": "" if volume is None else f"{volume:.1f}",
             "category": p.get("product_category_name", ""),
         }
-        (bulky if (w is not None and w > threshold) else plain).append(row)
+        all_products.append(row)
+        if w is not None and w > threshold:
+            bulky.append(row)
 
     item_rows = [
         {
@@ -193,7 +220,7 @@ def build(raw: str, out: str, *, ontology: str) -> dict[str, int]:
 
     tables = {
         "Seller": seller_rows,
-        "Product": plain,
+        "Product": all_products,
         "BulkyProduct": bulky,
         "OrderItem": item_rows,
         "Order": order_rows,
@@ -208,15 +235,112 @@ def build(raw: str, out: str, *, ontology: str) -> dict[str, int]:
     return {name: len(rows) for name, rows in tables.items()}
 
 
+_SAMPLE_ENTITIES = ("Order", "OrderItem", "Product", "BulkyProduct", "Seller", "Customer")
+
+
+def _read_with_header(path: str) -> tuple[list[str], list[dict[str, str]]]:
+    with open(path, newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        return list(reader.fieldnames or []), list(reader)
+
+
+def _write(path: str, header: list[str], rows: list[dict[str, str]]) -> None:
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=header)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def cut_sample(src: str, out: str, n_orders: int) -> dict[str, int]:
+    tables = {
+        name: _read_with_header(os.path.join(src, f"{name}.csv"))
+        for name in _SAMPLE_ENTITIES
+    }
+
+    order_hdr, orders = tables["Order"]
+    kept_orders = orders[:n_orders]
+    order_ids = {r["order_id"] for r in kept_orders}
+
+    item_hdr, items = tables["OrderItem"]
+    kept_items = [r for r in items if r["order_id"] in order_ids]
+
+    # Only what the kept items and orders actually reference — the closure, not a second sample.
+    product_ids = {r["product_id"] for r in kept_items}
+    seller_ids = {r["seller_id"] for r in kept_items}
+    customer_ids = {r["customer_id"] for r in kept_orders}
+
+    prod_hdr, products = tables["Product"]
+    kept_products = [r for r in products if r["product_id"] in product_ids]
+    bulky_hdr, bulky = tables["BulkyProduct"]
+    kept_bulky = [r for r in bulky if r["product_id"] in product_ids]
+    seller_hdr, sellers = tables["Seller"]
+    kept_sellers = [r for r in sellers if r["seller_id"] in seller_ids]
+    cust_hdr, customers = tables["Customer"]
+    kept_customers = [r for r in customers if r["customer_id"] in customer_ids]
+
+    os.makedirs(out, exist_ok=True)
+    written = {
+        "Order": (order_hdr, kept_orders),
+        "OrderItem": (item_hdr, kept_items),
+        "Product": (prod_hdr, kept_products),
+        "BulkyProduct": (bulky_hdr, kept_bulky),
+        "Seller": (seller_hdr, kept_sellers),
+        "Customer": (cust_hdr, kept_customers),
+    }
+    for name, (hdr, rows) in written.items():
+        _write(os.path.join(out, f"{name}.csv"), hdr, rows)
+
+    _assert_closed(written)
+    return {name: len(rows) for name, (_, rows) in written.items()}
+
+
+def _assert_closed(written: dict[str, tuple[list[str], list[dict[str, str]]]]) -> None:
+    """Every foreign key resolves inside the sample. Checked here, not assumed: a sample that
+    silently loses closure produces a demo where a declared relation dead-ends at runtime."""
+    ids = {
+        "order": {r["order_id"] for r in written["Order"][1]},
+        "product": {r["product_id"] for r in written["Product"][1]},
+        "seller": {r["seller_id"] for r in written["Seller"][1]},
+        "customer": {r["customer_id"] for r in written["Customer"][1]},
+    }
+    for row in written["OrderItem"][1]:
+        for key, bucket in (("order_id", "order"), ("product_id", "product"),
+                            ("seller_id", "seller")):
+            if row[key] not in ids[bucket]:
+                raise SystemExit(f"OrderItem {row['item_id']} references missing {key}")
+    for row in written["Order"][1]:
+        if row["customer_id"] not in ids["customer"]:
+            raise SystemExit(f"Order {row['order_id']} references missing customer")
+    for row in written["BulkyProduct"][1]:
+        if row["product_id"] not in ids["product"]:
+            raise SystemExit("BulkyProduct instance is not an instance of Product (violates ⪯)")
+
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--raw", default="examples/olist_raw")
-    ap.add_argument("--out", default="examples/supply_data")
+    ap.add_argument("--full", default="examples/supply_full")
+    ap.add_argument("--sample", default="examples/supply_sample")
+    ap.add_argument("--sample-orders", type=int, default=4000)
     ap.add_argument("--ontology", default="examples/supply_ontology.yaml")
     ap.add_argument("--download", action="store_true", help="fetch the source tables first")
     args = ap.parse_args()
+
     if args.download:
         download(args.raw)
+    if not os.path.isdir(args.raw):
+        raise SystemExit(f"{args.raw} not found — re-run with --download")
+
     print(f"bulky threshold from ontology: {bulky_threshold(args.ontology):.0f} g")
-    for name, n in build(args.raw, args.out, ontology=args.ontology).items():
-        print(f"  {name:<14} {n:>7} rows")
+    print(f"\nstep 1  Olist tables -> one CSV per entity  ({args.full})")
+    for name, n in build(args.raw, args.full, ontology=args.ontology).items():
+        print(f"  {name:<14} {n:>7,} rows")
+
+    print(f"\nstep 2  cut a committed sample, closed under Ω's relations  ({args.sample})")
+    for name, n in cut_sample(args.full, args.sample, args.sample_orders).items():
+        print(f"  {name:<14} {n:>7,} rows")
+    size = sum(
+        os.path.getsize(os.path.join(args.sample, f"{n}.csv")) for n in _SAMPLE_ENTITIES
+    )
+    print(f"  referentially closed, {size / 1e6:.1f} MB — this is what the repository carries")

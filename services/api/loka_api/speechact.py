@@ -10,12 +10,12 @@ a listener, a typed variable, and a predicate, dispatched to KB.DATA or KB.METHO
 
     Runtime: for each informs(li,sp,P) with a concrete P  ->  add P to KB.DATA.
 
-The runtime rule needs a qualification the slide leaves implicit: *which world* the informed
-predicate holds in. An ``orders`` act asks what would happen under a counterfactual dial setting,
-so its answer is not a fact about the actual world. KB.DATA is therefore indexed by
-``(entity, predicate, scenario)`` and every fact carries a :class:`Provenance` — ``observed`` (a
-reading of the world), ``derived`` (the output of a method), or ``asserted``. A derived value can
-never be written into the actual world, so a projection cannot overwrite an observation.
+The runtime rule needs a qualification the usual statement leaves implicit: *which world* the
+informed predicate holds in. An ``orders`` act asks what would happen under a counterfactual
+dial setting, so its answer is not a fact about the actual world. KB.DATA is therefore indexed
+by ``(entity, predicate, scenario)`` and every fact carries a :class:`Provenance` — ``observed``
+(a reading of the world), ``derived`` (the output of a method), or ``asserted``. A derived value
+can never be written into the actual world, so a projection cannot overwrite an observation.
 """
 
 from __future__ import annotations

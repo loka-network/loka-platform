@@ -69,14 +69,33 @@ def load_supply_ontology() -> Any | None:
     return None
 
 
+def _bundled_sample_dir() -> str | None:
+    """The committed sample, found relative to this file or the working directory."""
+    here = os.path.dirname(__file__)
+    for p in (
+        os.path.join(here, "..", "..", "..", "examples", "supply_sample"),
+        os.path.join(os.getcwd(), "examples", "supply_sample"),
+    ):
+        if os.path.isdir(p):
+            return p
+    return None
+
+
 def load_supply_dataset(engine: Any | None = None) -> dict[str, list[dict[str, Any]]]:
     """Rows per entity type.
 
-    Reads ``<dir>/<EntityType>.csv`` from ``LOKA_SUPPLY_DATA`` when set, so a real dataset drops
-    in without code changes; otherwise returns the built-in sample. Numeric strings are converted
-    so guards and comparisons operate on numbers, not text.
+    Three sources, in order: ``LOKA_SUPPLY_DATA`` when set, so a full dataset drops in without
+    code changes; else ``examples/supply_sample`` — a referentially closed cut of the real
+    marketplace data, committed so a fresh clone can exercise relations, ⪯ and the norms without
+    a download; else a handful of rows written in this file.
+
+    The middle case is the one that matters. Without it the supply endpoints returned 503 on a
+    clone and their tests skipped, so the half of Ω that a single table cannot exercise was
+    unreachable for anyone who had not run the build script first.
+
+    Numeric strings are converted so guards and comparisons operate on numbers, not text.
     """
-    directory = os.getenv("LOKA_SUPPLY_DATA")
+    directory = os.getenv("LOKA_SUPPLY_DATA") or _bundled_sample_dir()
     if not directory or not os.path.isdir(directory):
         return {k: [dict(r) for r in v] for k, v in _SAMPLE.items()}
 

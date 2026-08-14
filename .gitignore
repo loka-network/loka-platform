@@ -37,4 +37,6 @@ data/
 # Olist source tables and the per-entity CSVs derived from them (~74MB).
 # Reproduce with: python examples/build_supply_data.py --download
 examples/olist_raw/
-examples/supply_data/
+# Step 1 output, ~31MB. What the repository carries is the step 2 cut,
+# examples/supply_sample, which is committed.
+examples/supply_full/

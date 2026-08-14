@@ -19,6 +19,7 @@ entities:
       - {name: seller_id,    type: string, required: true, description: "identity key"}
       - {name: seller_state, type: string, description: "two-letter Brazilian state code"}
       - {name: on_time_rate, type: double, description: "share of this seller's delivered orders that arrived by the promised date, 0-1"}
+      - {name: delivered_lines, type: integer, description: "how many delivered orders on_time_rate was computed over — its denominator, so a rate can be told apart from a rate worth acting on"}
 
   - type: Product
     properties:
@@ -107,17 +108,19 @@ norms:
   - name: LateOrdersMustBeDisclosed
     action: NotifyDelay
     status: mandatory
-    when: "delay_days >= 3"
+    when: "days_late >= 3"
     rationale: >
       Consumer law obliges the marketplace to disclose a material delay. Without a mandatory
       status the system could only record that notifying is allowed — it could never report that
       staying silent is a violation, which is the case that matters.
 
-  - name: NoSuspensionWhileDisputed
+  - name: NoSuspensionOnThinEvidence
     action: SuspendSeller
     status: forbidden
-    when: "open_disputes >= 1"
+    when: "delivered_lines < 20"
     rationale: >
-      A seller contesting the metric may not be suspended on that metric before the dispute is
-      heard. This is not a precondition of suspending — suspension would work fine — it is a
-      rule about what is allowed, so it belongs in N, not in the guard.
+      on_time_rate over a handful of orders is mostly noise: one late delivery out of three puts
+      a seller under the 0.8 guard on evidence that would not survive a second sample. The guard
+      is about the mechanism — is this seller's rate low — and it works correctly here. Whether
+      it is legitimate to end someone's livelihood on that much evidence is a different question,
+      and that is the one N answers.
