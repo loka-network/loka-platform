@@ -1,4 +1,4 @@
-"""Query dispatch — the DATA/METHODS split of the professor's query workflow (slide 7).
+"""Query dispatch — the DATA/METHODS split of the query workflow.
 
 A typed query q* is routed to one of two branches:
 

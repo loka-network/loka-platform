@@ -1,4 +1,4 @@
-"""NL -> formalized projection query (the professor's Workflow B: question -> LLM -> q).
+"""NL -> formalized projection query (Workflow B: question -> LLM -> q).
 
 The LLM *proposes* the method inputs (which country, what new health-spending level); the caller
 *disposes* by validating them against the panel (an unknown country / non-numeric level is
@@ -67,7 +67,7 @@ def formalize_query(
 ) -> dict[str, Any]:
     """NL -> a classified query: intent = 'order' (apply method) | 'ask' (lookup DATA) | 'none'.
 
-    ``order`` (Sifakis orders(...)) changes a dial and applies the projection method; ``ask``
+    ``order`` (an ``orders`` act) changes a dial and applies the projection method; ``ask``
     (asks(...)) retrieves a current attribute from KB.DATA. Intent is inferred from the fields so
     it is robust to models that only fill some of them.
 

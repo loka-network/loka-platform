@@ -1,6 +1,7 @@
-"""Simulation stage (S4 Agent Society + S5 EcoFormer) — basic, causal-driven.
+"""Simulation stage — basic, causal-driven.
 
-Full version: a Manager plans a DAG, an agent society simulates it tick by tick, and EcoFormer
+Full version: a manager plans a DAG, an agent society simulates it tick by tick, and a
+calibrated forecasting model
 produces calibrated quantile outcomes. This basic version derives a nominal + adverse pair from
 the *real* causal slice Γ(q): the effect reaching the targets sets the nominal outcome, and a
 ~5% downside (mean - 1.645·se) sets the adverse one. With no causal path it falls back to

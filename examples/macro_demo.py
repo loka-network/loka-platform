@@ -1,4 +1,4 @@
-"""End-to-end macro demo: the two Sifakis workflows, in process, no server needed.
+"""End-to-end macro demo: both workflows, in process, no server needed.
 
 Run:  PYTHONPATH=services/api python examples/macro_demo.py
 

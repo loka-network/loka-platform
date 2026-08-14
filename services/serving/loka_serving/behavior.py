@@ -1,4 +1,4 @@
-"""Behavior engine port — where the company's human-behavior model plugs in (S4 Agent Society).
+"""Behavior engine port — where a domain human-behavior model plugs in.
 
 The simulation needs archetypes to behave realistically: given a social context, a persona, and
 the interaction history, produce the persona's next action. That is exactly the behavior

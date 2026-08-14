@@ -1,4 +1,4 @@
-"""Speech-act formalization of Workflow B (Sifakis, slide 7 "Queries").
+"""Speech-act formalization of Workflow B.
 
 Slide 7 does not treat a query as a flat parameter bag — it is a *speech act* q with a speaker,
 a listener, a typed variable, and a predicate, dispatched to KB.DATA or KB.METHODS:
@@ -153,7 +153,7 @@ class Method:
 
 
 class KB:
-    """The agent's Knowledge Base: DATA (facts) + METHODS (applicable methods) — slide 7's KB.
+    """The agent's Knowledge Base: DATA (facts) + METHODS (applicable methods).
 
     KB.DATA is indexed by ``(entity, predicate, scenario)``. The actual world is scenario
     ``ACTUAL``; a counterfactual produced by a method lives under its own scenario id and can

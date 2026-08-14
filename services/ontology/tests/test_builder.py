@@ -38,8 +38,8 @@ def test_build_splits_data_and_method_needs() -> None:
     assert spec.facets["factual"] and spec.facets["cognitive"]
 
 
-def test_facets_are_the_slide7_three_facet_analysis() -> None:
-    # Ontology Analysis (slide 7): Factual = objective world, Cognitive = methods,
+def test_facets_partition_the_ontology_into_three() -> None:
+    # Factual = objective world, Cognitive = methods,
     # Communication = the speech acts (informs/asks/orders) the agent performs.
     spec = build([_TEXT], KeywordBuilder())
     assert "GDP" in spec.facets["factual"]  # objective-world entities

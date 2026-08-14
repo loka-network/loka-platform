@@ -84,7 +84,7 @@ __all__ = [
     "ScenarioWorldModel",
     "ScenarioStatePackage",
     "ManifestPins",
-    # simulation / policy (skeleton stages S4–S6)
+    # simulation / policy (skeleton stages)
     "Scenario",
     "DecisionMemo",
     # KB.METHODS

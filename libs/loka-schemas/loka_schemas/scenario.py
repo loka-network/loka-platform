@@ -1,6 +1,7 @@
 """Scenario — one branch of the scenario tree.
 
-Produced by the simulation stage (S4 Agent Society + S5 EcoFormer). Every scenario is one
+Produced by the simulation stage (the agent society and the forecasting model). Every
+scenario is one
 possible future for the queried world model, classified as nominal / adverse / mandated and
 carried, with its probability, into the policy stage.
 """

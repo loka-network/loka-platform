@@ -1,15 +1,15 @@
-"""Slide-6 right half for the health scenario: Simulation -> Policy -> Decision memorandum.
+"""The decision half for the health scenario: Simulation -> Policy -> Decision memorandum.
 
-Slide 6 does not stop at a query answer — a formalized query flows through:
+The chain does not stop at a query answer — a formalized query flows through:
 
-    ... -> Simulation (EcoFormer / Agent Society): Scenario Evaluation / Selection
-        -> PolicyFormer: Control Policy -> Decision memorandum + audit replay -> Response
+    ... -> Simulation: scenario evaluation and selection
+        -> Policy: control policy -> decision memorandum + replayable audit -> response
 
 This module connects Workflow B's ``orders`` result (a controlled projection with a 95% interval)
-to that chain, so the health demo produces the same governed artefact the professor's diagram asks
-for — scenarios, a chosen policy, and a replayable audit hash — instead of a bare number.
+to that chain, so the demo produces a governed artefact — scenarios, a chosen policy, and a
+replayable audit hash — instead of a bare number.
 
-It is a basic, honest stand-in for the full EcoFormer/PolicyFormer (no multi-agent society, no
+It is a basic, honest stand-in for the full simulator and policy model (no agent society, no
 CVaR welfare functional) — labelled ``basic`` in the output. The constraint it enforces is sourced
 from the ontology action's ``guard`` (load-bearing: the governance gate is Ω's, not hardcoded).
 """
@@ -21,7 +21,7 @@ from typing import Any
 
 
 def evaluate_scenarios(projection: dict[str, Any]) -> list[dict[str, Any]]:
-    """Scenario Evaluation (EcoFormer stand-in): bound the projection by the *effect's* CI.
+    """Scenario evaluation (simulator stand-in): bound the projection by the *effect's* CI.
 
     Under-5 mortality is a *lower-is-better* outcome, so the interval's upper bound is the adverse
     scenario and the lower bound the favourable one. The bounds come from ``interval_95``, which is
@@ -120,12 +120,12 @@ def select_and_decide(
     guard: str,
     method_name: str,
 ) -> dict[str, Any]:
-    """Scenario Selection + PolicyFormer + audit: choose the nominal, judge welfare, gate, hash.
+    """Scenario selection, welfare judgement, guard, and audit hash.
 
     Welfare objective is to minimise under-5 mortality. The recommendation states whether the
     proposed spending improves it, always carrying the projection's identification label so the
     read stays honest (observational, not a causal guarantee). The audit hash binds Ω's version,
-    the method, and the exact inputs so the decision is replayable (slide-6 "audit replay").
+    the method, and the exact inputs so the decision is replayable (replayable audit).
     """
     current = projection["current_outcome"]
     chosen = next(s for s in scenarios if s["kind"] == "nominal")
@@ -183,11 +183,11 @@ def select_and_decide(
         "identification": projection.get("identification", "observational"),
         "audit_manifest": audit,
         "audit_inputs": audit_inputs,  # what the hash binds — recompute it to verify a replay
-        "policy_engine": "basic (full PolicyFormer S6 not implemented)",
+        "policy_engine": "basic (the full policy model is not implemented)",
     }
 
 
-def slide6_right_half(
+def evaluate_and_decide(
     projection: dict[str, Any], *, iso: str, ontology_version: str, guard: str, method_name: str
 ) -> dict[str, Any]:
     """Run the projection through Simulation -> Policy and return {scenarios, decision}."""

@@ -1,12 +1,13 @@
 """Manager Agent — the end-to-end query -> decision orchestrator.
 
-This is the Sifakis slide-6 chain, wired for one question:
+The chain, wired for one question:
 
     question -> [3 grounding] q*  -> [2 compiler] W(q,t) -> [4 simulation] scenarios
              -> [5 policy] decision memorandum -> Response
 
 Stages 2 (loka_compiler) and 3 (loka_grounding) run real code; stages 4 and 5 are honest stubs
-(loka_api.simulation / loka_api.policy) until S4-S6 are built. The ``stages`` field of the
+(loka_api.simulation / loka_api.policy) until the simulator and policy model are built.
+The ``stages`` field of the
 response says, per stage, whether it is real or a stub — no pretending.
 """
 

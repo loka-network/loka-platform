@@ -1,4 +1,4 @@
-"""Workflow A — ontology generation from domain texts (Sifakis slide 7, left half).
+"""Workflow A — ontology generation from domain texts.
 
     domain texts + prompt --LLM--> ontology + acquired knowledge (DATA / METHODS) --> KB
 
@@ -202,7 +202,7 @@ class LLMBuilder:
 
 
 def analyze_facets(draft: OntologyDraft) -> dict[str, tuple[str, ...]]:
-    """The Ontology *Analysis* of slide 7 — decompose the draft into Sifakis's three facets.
+    """Decompose the draft into three facets.
 
     Per slides 5 ("Factual Agent / Communicator / Institutor") and 8 (act taxonomy):
 
@@ -239,7 +239,7 @@ def build(texts: Sequence[str], builder: OntologyBuilder | None = None) -> KBSpe
 
     Raises ``OntologyLoadError`` if the proposed ontology is inconsistent (the type system
     disposing of a bad proposal) — the caller sees a structured failure, never a silent bad KB.
-    The KBSpec carries the Ontology Analysis in ``facets`` (factual/cognitive/communication).
+    The KBSpec carries the three-facet analysis in ``facets`` (factual/cognitive/communication).
     """
     builder = builder or KeywordBuilder()
     draft = builder.propose(texts)
@@ -249,7 +249,7 @@ def build(texts: Sequence[str], builder: OntologyBuilder | None = None) -> KBSpe
         ontology_yaml=yaml,
         data_needs=draft.data_needs,
         method_needs=draft.method_needs,
-        facets=analyze_facets(draft),  # the slide-7 three-facet Ontology Analysis
+        facets=analyze_facets(draft),  # the three-facet analysis
     )
 
 

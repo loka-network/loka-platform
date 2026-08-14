@@ -4,7 +4,7 @@ Minimal service surface over the foundation:
   - GET  /health   → liveness + ontology version
   - POST /compile  → a typed query q* → the compiled Scenario World Model W(q, t) as JSON
 
-The natural-language front-end (NL → q*) is S3; this endpoint takes an already-typed query.
+The natural-language front end (NL → q*) is in loka_grounding; /compile takes a typed query.
 """
 
 from __future__ import annotations
@@ -124,7 +124,7 @@ def _project_health(
 
 
 class AnswerRequest(BaseModel):
-    """A natural-language question posted to /answer (the full slide-6 chain)."""
+    """A natural-language question posted to /answer (the full chain)."""
 
     query_id: str
     question: str
@@ -152,7 +152,7 @@ class ImpactRequest(BaseModel):
 
 
 class OntologyCompileRequest(BaseModel):
-    """An externally-built ontology posted to /compile-ontology (S1 + S2 → W(q,t))."""
+    """An externally-built ontology posted to /compile-ontology (→ W(q,t))."""
 
     ontology_id: str
     ontology_name: str = "ontology"
@@ -166,7 +166,7 @@ def create_app(world: World | None = None) -> FastAPI:
     app = FastAPI(title="Loka Platform API", version="0.0.1")
     app.state.world = world or build_world_from_env()
     app.state.kb_worlds = {}  # kb_id -> World, populated by /build-kb
-    app.state.kb = KB()  # slide-7 KB.DATA/KB.METHODS; grows as queries are answered (add P to KB)
+    app.state.kb = KB()  # KB.DATA / KB.METHODS; grows as queries are answered
 
     from .ontology_store import OntologyRecord, OntologyStore
 
@@ -194,7 +194,7 @@ def create_app(world: World | None = None) -> FastAPI:
     app.state.health_engine = load_health_ontology()
     app.state.health_method = method_spec(app.state.health_engine)
 
-    # Governance context for the slide-6 policy stage, sourced from Ω (version + action guard),
+    # Governance context for the policy stage, sourced from Ω (version + action guard),
     # so the decision memo's enforced constraint is the ontology's, not a hardcoded string.
     _eng = app.state.health_engine
     app.state.health_governance = {
@@ -233,7 +233,7 @@ def create_app(world: World | None = None) -> FastAPI:
     def build_kb_endpoint(req: BuildKBRequest) -> dict[str, Any]:
         """Workflow A: domain texts -> validated ontology + DATA/METHODS needs (a KBSpec).
 
-        Follows the professor's texts->LLM->ontology when LOKA_LLM_BUILD is set and a model is
+        Follows texts->LLM->ontology when LOKA_LLM_BUILD is set and a model is
         configured (Claude or a self-hosted vLLM, via the model gateway); otherwise the
         deterministic rule-based builder. The response's ``builder`` field says which ran.
         """
@@ -282,7 +282,7 @@ def create_app(world: World | None = None) -> FastAPI:
 
         out: dict[str, Any] = jsonable_encoder(spec)
         out["kb_id"] = kb_id  # pass to /answer to query against this built KB
-        out["builder"] = builder_mode  # 'llm' (professor's way) or 'keyword' (rule-based)
+        out["builder"] = builder_mode  # 'llm' or 'keyword' (rule-based)
         out["ontology_id"] = rec.ontology_id
         out["state"] = rec.state  # 'draft' — not yet able to authorize answers
         out["review"] = rec.review  # what a human must decide before this can be published
@@ -489,7 +489,7 @@ def create_app(world: World | None = None) -> FastAPI:
         """Full Workflow B: NL question -> LLM extracts {country, new_spending} -> project.
 
         If the question can't be grounded to the ontology (unknown country / no spending level),
-        the system honestly answers "don't know" (Sifakis's informs(li,sp,"don't know")) rather
+        the system answers with an ``informs(li, sp, "don't know")`` act rather
         than guessing. This is the ontology doing its job: the system knows its own limits.
         """
         from .nl_project import as_spending, formalize_query, resolve_country
@@ -636,13 +636,13 @@ def create_app(world: World | None = None) -> FastAPI:
         result["formalized_query"] = {"country": iso, "new_spending": spending}
         result["speech_act"] = {"act": "orders", "query": q.render(), "response": informs.render()}
 
-        # slide-6 right half: run the method result through Simulation -> Policy -> Decision memo.
+        # the decision half: run the method result through Simulation -> Policy -> Decision memo.
         proj = result.get("controlled")
         if isinstance(proj, dict) and "projected_outcome" in proj:
-            from .health_policy import slide6_right_half
+            from .health_policy import evaluate_and_decide
 
             gov = app.state.health_governance
-            rh = slide6_right_half(
+            rh = evaluate_and_decide(
                 proj, iso=iso, ontology_version=gov["ontology_version"],
                 guard=gov["guard"], method_name="project_under5_mortality",
             )

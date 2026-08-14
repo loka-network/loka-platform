@@ -1,8 +1,8 @@
-"""DecisionMemo — the policy stage's output (S6 PolicyFormer).
+"""DecisionMemo — the policy stage's output.
 
 Three blocks (recommended / mandated / contingency) plus an audit manifest hash so a run can
 be replayed. Every figure should eventually trace to evidence; the reference/stub policy fills
-the shell and the real PolicyFormer fills the substance.
+the shell; the policy model fills the substance.
 """
 
 from __future__ import annotations

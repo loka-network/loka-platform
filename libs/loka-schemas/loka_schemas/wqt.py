@@ -1,7 +1,8 @@
 """W(q, t) — the Scenario World Model contract.
 
 The single per-question object every downstream engine reads. Produced once by the compiler
-from Ω + Eₜ + Mission (+ the causal slice Γ(q), which S2 fills in later). Version pins make a
+from Ω + Eₜ + Mission (+ the causal slice Γ(q), filled in by the causal engine). Version pins
+make a
 run reproducible/replayable.
 """
 
@@ -33,7 +34,7 @@ class ScenarioStatePackage:
 
 @dataclass(frozen=True)
 class ScenarioWorldModel:
-    """W(q, t). The ``causal_slice`` is empty until S2 fills Γ(q)."""
+    """W(q, t). The ``causal_slice`` is empty until the causal engine fills Γ(q)."""
 
     scenario_id: str
     query_id: str

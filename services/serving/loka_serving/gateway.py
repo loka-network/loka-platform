@@ -2,7 +2,7 @@
 
 Every service asks the gateway for a model *by purpose* rather than constructing clients itself,
 so provider / model / LoRA routing, credentials, and an audit trail live in one place — the
-machine-control boundary, in the professor's terms (human-control vs machine-control separation).
+boundary between what a human controls and what the machine does.
 Grounding and the ontology builder still accept an injected client; the gateway is just who
 constructs, routes, and logs it.
 

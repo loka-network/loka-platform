@@ -63,7 +63,7 @@ def test_compile_produces_wqt() -> None:
     assert w.query_id == "q1"
     # only CentralBank state made it into the slice
     assert w.state_package.state_slice == {"CentralBank.Fed.rate": 0.05}
-    # causal slice is empty until S2
+    # causal slice is empty until the causal engine fills it
     assert w.causal_slice is None
     # manifest pins are populated
     assert w.manifest.omega_version == "v1"

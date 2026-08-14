@@ -3,8 +3,7 @@
 A generated ontology is a *proposal*, not an authority. `CΩ` catches structural faults (undefined
 references, cycles, incompatible subtype overrides), but it cannot catch a proposal that is
 structurally sound and semantically wrong: a numeric field typed `string`, a relation pointing the
-wrong way, a missing cardinality, an absent guard. Those need a human, and the professor's own
-diagram marks the analysis→ontology step with the only dashed arrow on the slide.
+wrong way, a missing cardinality, an absent guard. Those need a human.
 
 So the lifecycle makes the human step part of the architecture rather than a convention:
 

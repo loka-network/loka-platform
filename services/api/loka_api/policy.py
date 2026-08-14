@@ -1,11 +1,11 @@
-"""Policy stage (S6 PolicyFormer + governance/audit) — basic welfare + constraint gate.
+"""Policy stage (welfare, governance, audit) — basic welfare + constraint gate.
 
-Full version: PolicyFormer scores scenarios under the mission's welfare functional and hard
+Full version: the policy model scores scenarios under the mission's welfare functional and hard
 constraints (CVaR-penalised), emits a three-block memorandum with every figure traced to
 evidence, and the G3 decision gate vets it. This basic version applies a mini G3 hard-constraint
 gate, picks the scenario with the best outcome (falling back to probability), and records the
 welfare terms + constraints it honoured, plus a manifest hash for replay. Simple stand-in for
-the full PolicyFormer — labelled so.
+the full policy model — labelled so.
 """
 
 from __future__ import annotations
@@ -51,7 +51,7 @@ def decide(wqt: ScenarioWorldModel, scenarios: list[Scenario]) -> DecisionMemo:
             f"Picked the best-outcome admissible scenario under welfare terms "
             f"{welfare_terms or 'none'}; "
             f"hard constraints enforced: {constraints or 'none'}. "
-            "(Basic welfare/constraint policy — full PolicyFormer S6 not implemented.)"
+            "(Basic welfare/constraint policy — the full policy model is not implemented.)"
         ),
         block_A_recommended={"scenario_id": top.scenario_id if top else None},
         block_C_contingency={"scenario_id": adverse},

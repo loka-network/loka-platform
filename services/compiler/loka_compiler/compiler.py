@@ -1,8 +1,8 @@
 """World Model Compiler — binds Ω + Eₜ + Mission + q* into W(q, t).
 
-This is the convergence point of the foundation: the ontology (S1), world state (S1), and
-mission (S1) are bound into a single Scenario World Model. The causal slice Γ(q) is left
-empty here and filled by the causal engine (S2).
+This is the convergence point of the foundation: the ontology, world state and mission are
+bound into a single Scenario World Model. The causal slice Γ(q) is left
+empty here and filled by the causal engine.
 
 Determinism: identical (ontology version, state snapshot, mission, query) inputs compile to
 an equal W(q, t) — the basis for replay.

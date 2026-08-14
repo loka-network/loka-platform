@@ -1,8 +1,8 @@
-"""Slide-6 right half for health: projection -> scenarios -> decision memo + audit."""
+"""The decision half for health: projection -> scenarios -> decision memo + audit."""
 
 from __future__ import annotations
 
-from loka_api.health_policy import evaluate_scenarios, select_and_decide, slide6_right_half
+from loka_api.health_policy import evaluate_and_decide, evaluate_scenarios, select_and_decide
 
 _PROJ = {
     "outcome": "under5_mortality", "dial": "health_exp_per_capita",
@@ -66,7 +66,7 @@ def test_scenarios_use_the_effect_interval_not_the_level_interval() -> None:
 def test_a_determined_direction_over_a_weak_fit_reads_differently() -> None:
     """Two failures must not read alike: "cannot tell" and "can tell, and it explains little"."""
     weak = {**_PROJ, "fit": {"n": 96454, "params": 4, "r2": 0.013, "sample_digest": "d"}}
-    d = slide6_right_half(weak, iso="ZMB", ontology_version="health-v1",
+    d = evaluate_and_decide(weak, iso="ZMB", ontology_version="health-v1",
                           guard="g", method_name="m")["decision"]
     assert d["effect_distinguishable_from_zero"] is True     # the direction is determined
     assert d["explanatory_power"]["explains_little"] is True  # but it accounts for little
@@ -74,7 +74,7 @@ def test_a_determined_direction_over_a_weak_fit_reads_differently() -> None:
 
 
 def test_a_strong_fit_carries_no_weak_fit_qualifier() -> None:
-    d = slide6_right_half(_PROJ, iso="ZMB", ontology_version="health-v1",
+    d = evaluate_and_decide(_PROJ, iso="ZMB", ontology_version="health-v1",
                           guard="g", method_name="m")["decision"]
     assert d["explanatory_power"]["r2"] == 0.809
     assert d["explanatory_power"]["explains_little"] is False
@@ -82,24 +82,24 @@ def test_a_strong_fit_carries_no_weak_fit_qualifier() -> None:
 
 
 def test_the_weak_fit_threshold_is_published_not_applied_silently() -> None:
-    d = slide6_right_half(_PROJ, iso="ZMB", ontology_version="health-v1",
+    d = evaluate_and_decide(_PROJ, iso="ZMB", ontology_version="health-v1",
                           guard="g", method_name="m")["decision"]
     assert d["explanatory_power"]["weak_fit_threshold"] == 0.10  # a reader can disagree with it
 
 
 def test_audit_hash_is_deterministic_for_replay() -> None:
-    a = slide6_right_half(_PROJ, iso="ZMB", ontology_version="health-v1",
+    a = evaluate_and_decide(_PROJ, iso="ZMB", ontology_version="health-v1",
                           guard="g", method_name="m")["decision"]["audit_manifest"]
-    b = slide6_right_half(_PROJ, iso="ZMB", ontology_version="health-v1",
+    b = evaluate_and_decide(_PROJ, iso="ZMB", ontology_version="health-v1",
                           guard="g", method_name="m")["decision"]["audit_manifest"]
     assert a == b  # same inputs -> same hash (replayable)
 
 
 def test_audit_hash_binds_the_fitted_sample() -> None:
     """A data revision must change the hash — otherwise two different answers share one audit id."""
-    a = slide6_right_half({**_PROJ, "fit": {"n": 4382, "params": 8, "sample_digest": "aaa"}},
+    a = evaluate_and_decide({**_PROJ, "fit": {"n": 4382, "params": 8, "sample_digest": "aaa"}},
                           iso="ZMB", ontology_version="health-v1", guard="g", method_name="m")
-    b = slide6_right_half({**_PROJ, "fit": {"n": 4382, "params": 8, "sample_digest": "bbb"}},
+    b = evaluate_and_decide({**_PROJ, "fit": {"n": 4382, "params": 8, "sample_digest": "bbb"}},
                           iso="ZMB", ontology_version="health-v1", guard="g", method_name="m")
     assert a["decision"]["audit_manifest"] != b["decision"]["audit_manifest"]
 
@@ -109,7 +109,7 @@ def test_audit_inputs_are_published_so_the_hash_can_be_recomputed() -> None:
 
     from loka_api.health_policy import _audit_preimage
 
-    d = slide6_right_half(_PROJ, iso="ZMB", ontology_version="health-v1",
+    d = evaluate_and_decide(_PROJ, iso="ZMB", ontology_version="health-v1",
                           guard="g", method_name="m")["decision"]
     recomputed = hashlib.sha256(_audit_preimage(d["audit_inputs"]).encode()).hexdigest()[:16]
     assert recomputed == d["audit_manifest"]  # an auditor can verify it independently
@@ -119,14 +119,14 @@ def test_audit_inputs_are_published_so_the_hash_can_be_recomputed() -> None:
 
 def test_a_decision_without_a_sample_digest_is_marked_not_replayable() -> None:
     proj = {**_PROJ, "fit": {"n": 10, "params": 3}}  # no digest
-    d = slide6_right_half(proj, iso="ZMB", ontology_version="health-v1",
+    d = evaluate_and_decide(proj, iso="ZMB", ontology_version="health-v1",
                           guard="g", method_name="m")["decision"]
     assert d["audit_inputs"]["replayable"] is False  # visible, not silently degraded
 
 
 def test_audit_hash_changes_with_ontology_version() -> None:
-    a = slide6_right_half(_PROJ, iso="ZMB", ontology_version="health-v1",
+    a = evaluate_and_decide(_PROJ, iso="ZMB", ontology_version="health-v1",
                           guard="g", method_name="m")["decision"]["audit_manifest"]
-    b = slide6_right_half(_PROJ, iso="ZMB", ontology_version="health-v2",
+    b = evaluate_and_decide(_PROJ, iso="ZMB", ontology_version="health-v2",
                           guard="g", method_name="m")["decision"]["audit_manifest"]
     assert a != b  # a different Ω -> a different audit trail

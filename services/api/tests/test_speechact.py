@@ -1,4 +1,4 @@
-"""The speech-act layer realizes Sifakis slide 7: asks/orders/informs + add-P-to-KB."""
+"""The speech-act layer: asks / orders / informs, and the add-P-to-KB runtime rule."""
 
 from __future__ import annotations
 
@@ -6,12 +6,12 @@ import pytest
 from loka_api.speechact import KB, Asks, Informs, Method, Orders, Provenance, dispatch
 
 
-def test_asks_renders_like_slide7() -> None:
+def test_asks_renders_with_speaker_listener_and_typed_variable() -> None:
     q = Asks("user", "loka", var_type="Country", entity_id="ZMB", predicate="under5_mortality")
     assert q.render() == "asks(user, loka, ?x:Country under5_mortality(x=ZMB))"
 
 
-def test_orders_renders_like_slide7() -> None:
+def test_orders_renders_with_its_method_signature() -> None:
     q = Orders(
         "user", "loka", method="project", in_types=("Country", "health_exp_per_capita"),
         out_type="under5_mortality", entity_id="ZMB", predicate="under5_mortality",

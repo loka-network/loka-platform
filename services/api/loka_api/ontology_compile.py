@@ -1,7 +1,7 @@
 """Compile an externally-authored ontology into W(q,t).
 
 This is what an ontology-building front end (e.g. Loka-OntoPrompt) calls: it POSTs the
-entities and relations it built, and this runs S1 (ontology Ω + world state Eₜ) and S2
+entities and relations it built; this loads them into Ω + world state Eₜ and the causal engine
 (causal graph Γ) in memory to produce a reproducible Scenario World Model — no storage
 backend required. The causal edge is drawn from a real relation in the supplied ontology.
 """

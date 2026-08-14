@@ -1,6 +1,6 @@
 """KBSpec — the output of Workflow A (ontology generation).
 
-The professor's slide 7: domain texts + prompt -> LLM -> ontology + acquired knowledge, split
+Workflow A: domain texts + prompt -> LLM -> ontology + acquired knowledge, split
 into DATA (needed) and METHODS (needed), stored in the KB. A ``KBSpec`` is that output as one
 validated object: a loadable ontology definition plus the data/method needs and the three
 Factual / Cognitive / Communication facets.

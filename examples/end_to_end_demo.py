@@ -1,13 +1,13 @@
-"""End-to-end demo: q* → (S1 + S2) → W(q, t).
+"""End-to-end demo: q* → W(q, t).
 
 Runnable proof that the foundation is wired together. It hand-authors a typed query (the
-natural-language front-end is S3, not built yet), then binds the ontology (S1), world state
-(S1), mission (S1) and causal graph (S2) into a single, reproducible Scenario World Model.
+query is hand-authored here), then binds the ontology, world state, mission and causal graph
+into a single, reproducible Scenario World Model.
 
     python examples/end_to_end_demo.py
 
 The "result" here is the compiled W(q, t) — the structured scenario package every downstream
-engine reads. Turning it into a human-facing report is S3 (LLM) / S4-S6.
+engine reads; turning it into a human-facing report is the simulation and policy stages.
 """
 
 from __future__ import annotations
@@ -59,17 +59,17 @@ def rule(title: str) -> None:
 
 
 def main() -> None:
-    print("Loka end-to-end demo — q* → (S1 + S2) → W(q, t)")
+    print("Loka end-to-end demo — q* → W(q, t)")
 
-    # ---- S1: ontology Ω ----
-    rule("S1 · Ontology Ω")
+    # ---- ontology Ω ----
+    rule("Ontology Ω")
     engine = OntologyEngine(load_ontology_str(ONTOLOGY))
     print(f" entity types : {sorted(engine.entity_types())}")
     print(f" GDP ⪯ MacroIndicator : {engine.is_subtype('GDP', 'MacroIndicator')}")
     print(f" GDP properties (inherited): {sorted(engine.properties_of('GDP'))}")
 
-    # ---- S1: world state Eₜ ----
-    rule("S1 · World state Eₜ")
+    # ---- world state Eₜ ----
+    rule("World state Eₜ")
     state = WorldState()
     state.set("GDP.TH.value", 2.1, NOW)
     state.set("GDP.TH.unit", "pct_yoy", NOW)
@@ -77,8 +77,8 @@ def main() -> None:
     print(f" GDP slice     : {state.slice(['GDP'])}")
     print(f" snapshot hash : {state.snapshot_hash()}")
 
-    # ---- S1: signed mission profile ----
-    rule("S1 · Mission Profile (customer-signed)")
+    # ---- signed mission profile ----
+    rule("Mission Profile (customer-signed)")
     mission = MissionProfile(
         version="ministry-v1",
         mandate="imported-inflation moderation with output-gap secondary",
@@ -92,8 +92,8 @@ def main() -> None:
     print(f" welfare  : {[(t.name, t.weight) for t in mission.welfare.terms]}")
     print(f" signed   : {mission.is_signed}")
 
-    # ---- S2: causal graph Γ ----
-    rule("S2 · Causal graph Γ")
+    # ---- causal graph Γ ----
+    rule("Causal graph Γ")
     graph = CausalGraph()
     S = IdentificationStatus
     graph.add_claim(_claim("c1", "PolicyRate", "DXY", S.STRUCTURAL, CausalLayer.STRUCTURAL))
@@ -102,8 +102,8 @@ def main() -> None:
     print(f" ancestors(GDP) : {sorted(graph.ancestors('GDP'))}")
     print(f" mediators(PolicyRate → GDP) : {sorted(graph.mediators('PolicyRate', 'GDP'))}")
 
-    # ---- S2: Kt evidence synthesis for one claim ----
-    rule("S2 · Kt evidence synthesis (claim c3)")
+    # ---- Kt evidence synthesis for one claim ----
+    rule("Kt evidence synthesis (claim c3)")
     kb = KnowledgeBase()
     for i, m in enumerate([-0.8, -1.0, -1.1]):
         kb.add_evidence(_evidence(f"e{i}", "c3", m))
@@ -112,8 +112,8 @@ def main() -> None:
     print(f" pooled effect : {syn.pooled.mean:.3f}  (95% CI {lo:.2f}..{hi:.2f})")
     print(f" heterogeneity : I²={syn.i_squared:.2f}  contradictions={len(syn.contradictions)}")
 
-    # ---- the question (hand-authored q*; NL→q* is S3) ----
-    rule("Question q* (hand-authored — NL→q* is S3)")
+    # ---- the question (hand-authored q*) ----
+    rule("Question q* (hand-authored)")
     query = TypedQuery(
         query_id="demo-q1",
         task_type="counterfactual",
@@ -140,7 +140,7 @@ def main() -> None:
           f"Eₜ={wqt.manifest.et_snapshot} Mc={wqt.manifest.mission_version}")
 
     rule("Done")
-    print(" W(q, t) compiled and reproducible. Downstream (S3 LLM / S4-S6) turns this")
+    print(" W(q, t) compiled and reproducible. The simulation and policy stages turn this")
     print(" structured package into a human-facing report — not built yet.")
 
 
