@@ -132,9 +132,10 @@ services/
 infra/                 Deployment / CI
 examples/              Ontologies, data-build scripts, runnable demos
 
-Directories reserved for services that are designed but not yet written — `manager/`,
-`society/`, `consensus/`, `gates/`, `mission/`, `causal_pipeline/`, `storage/` — are empty
-and are listed here so a name in the tree is never mistaken for a component.
+Services that are designed but not yet written — planning, the agent society, consensus, the
+governance gates as a distinct layer, and a mission service — have no directory here. They are
+named in the design document rather than reserved as empty folders, so nothing in the tree can
+be mistaken for a component.
 ```
 
 ## Governance & deployment
