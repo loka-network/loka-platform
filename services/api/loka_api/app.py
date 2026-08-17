@@ -29,6 +29,16 @@ class CompileRequest(BaseModel):
     signature: str | None = None
 
 
+#: One line per paradigm, recorded on the draft so two extractions of one document can be told
+#: apart by what was done rather than only by what came out.
+_EXTRACTION_METHODS = {
+    "single_shot": "text -> LLM -> ontology, one reply carrying the whole ontology",
+    "staged": "text -> LLM -> ontology, four staged extractions, each citing the source",
+    "relation_first": "text -> LLM -> ontology, relation vocabulary fixed before extraction",
+    "head_tail": "text -> LLM -> ontology, instance triples per fragment lifted to type level",
+}
+
+
 class BuildKBRequest(BaseModel):
     """Domain texts posted to /build-kb (Workflow A: texts -> ontology + DATA/METHODS)."""
 
@@ -39,11 +49,18 @@ class BuildKBRequest(BaseModel):
     #: having one opinion compiled into the platform; whichever ran is recorded on the draft.
     #: Applies to the single-shot method only; the staged method has one instruction per stage.
     system_prompt: str | None = None
-    #: ``single_shot`` asks for the whole ontology in one reply — simple, and the reply is what
-    #: gets truncated on a domain of any size. ``staged`` splits the task into four smaller
-    #: extractions and requires each proposal to cite the text it came from, so a concept the
-    #: document does not support is reported instead of accepted. Both are kept because
-    #: comparing them on one document is how the difference is shown rather than asserted.
+    #: Which extraction paradigm to run. They differ only in how relations are obtained, and
+    #: all but the first cite the source text for every proposal.
+    #:
+    #:   single_shot     the whole ontology in one reply. Simple, and the reply is what runs out
+    #:                   of budget on a domain of any size.
+    #:   staged          the same questions, split into four calls so no single answer is long.
+    #:   relation_first  decide the relation vocabulary in its own pass, then extract within it.
+    #:   head_tail       map mentions to types, extract between mentions per fragment, lift to
+    #:                   type level. A type relation exists because instances were found.
+    #:
+    #: All four are kept because comparing them on one document is how the difference gets
+    #: shown rather than asserted.
     method: str = "single_shot"
 
 
@@ -292,19 +309,22 @@ def create_app(world: World | None = None) -> FastAPI:
         llm_requested = os.getenv("LOKA_LLM_BUILD", "").lower() in ("1", "true", "yes")
         if llm_requested:
             # texts -> LLM -> ontology.
-            if req.method not in ("single_shot", "staged"):
+            from loka_ontology import PARADIGMS
+
+            if req.method != "single_shot" and req.method not in PARADIGMS:
+                known = ", ".join(["single_shot", *sorted(PARADIGMS)])
                 raise HTTPException(
                     status_code=400,
-                    detail=f"unknown method {req.method!r}; expected 'single_shot' or 'staged'",
+                    detail=f"unknown method {req.method!r}; expected one of {known}",
                 )
             try:
-                from loka_ontology import LLMBuilder, StagedLLMBuilder
+                from loka_ontology import LLMBuilder
                 from loka_serving import llm_for, model_for
 
                 client, model = llm_for("ontology_build"), model_for("ontology_build")
                 llm_builder: Any
-                if req.method == "staged":
-                    llm_builder = StagedLLMBuilder(client=client, model=model)
+                if req.method in PARADIGMS:
+                    llm_builder = PARADIGMS[req.method](client=client, model=model)
                 else:
                     llm_builder = LLMBuilder(
                         client=client, model=model, system_prompt=req.system_prompt
@@ -314,16 +334,18 @@ def create_app(world: World | None = None) -> FastAPI:
                 # Read back from the builder rather than restated here: a second copy of a
                 # prompt is a copy that eventually stops matching the one that ran.
                 provenance = {
-                    "method": (
-                        "text -> LLM -> ontology, four staged extractions with source citation"
-                        if req.method == "staged"
-                        else "text -> LLM -> ontology, single reply"
-                    ),
+                    "method": _EXTRACTION_METHODS.get(req.method, req.method),
                     "extraction": req.method,
                     "model": llm_builder.model,
                     "prompt": llm_builder.system_prompt,
                     "prompt_source": "caller" if req.system_prompt else "default",
                 }
+                notes = getattr(llm_builder, "notes", None)
+                if notes:
+                    # What this paradigm found that the others cannot report: the fixed
+                    # vocabulary and what it could not express, or the instance support behind
+                    # each lifted relation.
+                    provenance["paradigm_notes"] = dict(notes)
                 grounding = getattr(llm_builder, "grounding", None)
                 if grounding is not None:
                     # Which proposals were found in the document. Reported with the draft, not
