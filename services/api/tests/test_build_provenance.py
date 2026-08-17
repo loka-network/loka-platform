@@ -131,3 +131,57 @@ def test_the_rule_based_builder_is_still_available_when_asked_for(monkeypatch: A
     body = _build(TestClient(create_app()))
     assert body["builder"] == "keyword"
     assert "not extraction" in body["provenance"]["method"]
+
+
+def test_the_extraction_method_is_selectable_and_recorded(monkeypatch: Any) -> None:
+    """Two methods over one document is how the difference between them is shown rather than
+    asserted, so which one ran has to be on the record."""
+    monkeypatch.setenv("LOKA_LLM_BUILD", "1")
+    resp = TestClient(create_app()).post(
+        "/build-kb", json={"texts": [_TEXT], "method": "nonsense"}
+    )
+    assert resp.status_code == 400
+    assert "single_shot" in resp.json()["detail"]
+
+
+def test_an_ungrounded_concept_reaches_the_review_list(monkeypatch: Any) -> None:
+    """Reporting it in a provenance field is not reporting it. The reviewer reads one list."""
+    monkeypatch.setenv("LOKA_LLM_BUILD", "1")
+
+    import json as _json
+    from types import SimpleNamespace
+
+    import loka_serving
+
+    replies = {
+        "List the entity types": {"entities": [
+            {"name": "Bank", "subtype_of": None, "evidence": "The Central Bank"},
+            {"name": "Warehouse", "subtype_of": None, "evidence": "goods held in warehouses"},
+        ]},
+        "give the attributes": {"attributes": {}},
+        "extract the relations": {"relations": []},
+        "Classify each relation verb": {"verbs": []},
+    }
+
+    class _Client:
+        def __init__(self) -> None:
+            self.messages = SimpleNamespace(create=self._create)
+
+        def _create(self, *, system: str, **kw: Any) -> Any:
+            for marker, reply in replies.items():
+                if marker in system:
+                    text = _json.dumps(reply)
+                    return SimpleNamespace(content=[SimpleNamespace(type="text", text=text)])
+            raise AssertionError("unscripted stage")
+
+    monkeypatch.setattr(loka_serving, "llm_for", lambda _p: _Client())
+
+    body = TestClient(create_app()).post(
+        "/build-kb", json={"texts": [_TEXT], "method": "staged"}
+    ).json()
+
+    assert body["provenance"]["extraction"] == "staged"
+    assert body["provenance"]["grounding"]["ungrounded"] == ["Warehouse"]
+    flagged = [i for i in body["review"] if i["kind"] == "not_in_source"]
+    assert [i["target"] for i in flagged] == ["Warehouse"]
+    assert flagged[0] is body["review"][0]  # first, not buried

@@ -45,6 +45,7 @@ from .model import (
     VerbClass,
 )
 from .souffle_checker import SouffleTypeChecker, SouffleUnavailable, souffle_available
+from .staged_builder import Grounding, StagedLLMBuilder
 
 __all__ = [
     "OntologyEngine",
@@ -55,6 +56,8 @@ __all__ = [
     "OntologyBuilder",
     "OntologyDraft",
     "OntologyBuildError",
+    "StagedLLMBuilder",
+    "Grounding",
     "EntityDraft",
     "SouffleTypeChecker",
     "SouffleUnavailable",

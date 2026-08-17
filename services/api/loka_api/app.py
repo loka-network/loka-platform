@@ -37,7 +37,14 @@ class BuildKBRequest(BaseModel):
     #: relations, verbs and the DATA/METHODS needs — not cardinality, guards or norms, which a
     #: reviewer supplies. A domain that needs a different emphasis passes its own rather than
     #: having one opinion compiled into the platform; whichever ran is recorded on the draft.
+    #: Applies to the single-shot method only; the staged method has one instruction per stage.
     system_prompt: str | None = None
+    #: ``single_shot`` asks for the whole ontology in one reply — simple, and the reply is what
+    #: gets truncated on a domain of any size. ``staged`` splits the task into four smaller
+    #: extractions and requires each proposal to cite the text it came from, so a concept the
+    #: document does not support is reported instead of accepted. Both are kept because
+    #: comparing them on one document is how the difference is shown rather than asserted.
+    method: str = "single_shot"
 
 
 class IngestRequest(BaseModel):
@@ -285,25 +292,45 @@ def create_app(world: World | None = None) -> FastAPI:
         llm_requested = os.getenv("LOKA_LLM_BUILD", "").lower() in ("1", "true", "yes")
         if llm_requested:
             # texts -> LLM -> ontology.
+            if req.method not in ("single_shot", "staged"):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"unknown method {req.method!r}; expected 'single_shot' or 'staged'",
+                )
             try:
-                from loka_ontology import LLMBuilder
+                from loka_ontology import LLMBuilder, StagedLLMBuilder
                 from loka_serving import llm_for, model_for
 
-                llm_builder = LLMBuilder(
-                    client=llm_for("ontology_build"),
-                    model=model_for("ontology_build"),
-                    system_prompt=req.system_prompt,
-                )
+                client, model = llm_for("ontology_build"), model_for("ontology_build")
+                llm_builder: Any
+                if req.method == "staged":
+                    llm_builder = StagedLLMBuilder(client=client, model=model)
+                else:
+                    llm_builder = LLMBuilder(
+                        client=client, model=model, system_prompt=req.system_prompt
+                    )
                 spec = build(req.texts, llm_builder)
                 builder_mode = "llm"
                 # Read back from the builder rather than restated here: a second copy of a
                 # prompt is a copy that eventually stops matching the one that ran.
                 provenance = {
-                    "method": "text -> LLM -> ontology",
+                    "method": (
+                        "text -> LLM -> ontology, four staged extractions with source citation"
+                        if req.method == "staged"
+                        else "text -> LLM -> ontology, single reply"
+                    ),
+                    "extraction": req.method,
                     "model": llm_builder.model,
                     "prompt": llm_builder.system_prompt,
                     "prompt_source": "caller" if req.system_prompt else "default",
                 }
+                grounding = getattr(llm_builder, "grounding", None)
+                if grounding is not None:
+                    # Which proposals were found in the document. Reported with the draft, not
+                    # only kept: an ungrounded concept is a review decision, and a reviewer who
+                    # has to go looking for the list will not.
+                    provenance["grounding"] = grounding.as_dict()
+                    provenance["stage_calls"] = list(llm_builder.stage_calls)
             except Exception as exc:  # noqa: BLE001 - reported, never swallowed
                 # Falling back here used to look like graceful degradation. It is not: the
                 # rule-based builder splits prose on capitalised words, so a real domain
@@ -356,6 +383,18 @@ def create_app(world: World | None = None) -> FastAPI:
         rec = _store().create_draft(
             spec.ontology_yaml, source=f"builder:{builder_mode}", provenance=provenance
         )
+        # A concept the document does not support is a review decision, and a reviewer who has
+        # to go looking for it in a provenance field will not. It goes on the list they read.
+        for name in provenance.get("grounding", {}).get("ungrounded", []):
+            rec.review.insert(0, {
+                "kind": "not_in_source",
+                "target": name,
+                "detail": (
+                    f"{name} was proposed but the evidence cited for it was not found in the "
+                    "document. It may be a correct generalisation the text words differently, "
+                    "or it may be a concept the model supplied from elsewhere — confirm which."
+                ),
+            })
         app.state.kb_worlds[kb_id].ontology_id = rec.ontology_id
 
         out: dict[str, Any] = jsonable_encoder(spec)
