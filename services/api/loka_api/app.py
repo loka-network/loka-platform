@@ -173,19 +173,11 @@ class OntologyPublishRequest(BaseModel):
 
 
 class BuildFromDataRequest(BaseModel):
-    """Sample rows posted to /build-kb-from-data: derive a draft ontology from existing data."""
+    """Tables posted to /build-kb-from-data: ``{"tables": {"Order": [...], "Seller": [...]}}``.
 
-    entity_type: str
-    rows: list[dict[str, Any]]
-    backing: str | None = None  # the table the rows came from, recorded on the entity
-
-
-class BuildFromTablesRequest(BaseModel):
-    """Several tables at once: ``{"tables": {"Order": [...], "OrderItem": [...]}}``.
-
-    One table can only ever yield one entity. What connects them — relations, the field each is
-    traversed by, cardinality, the subtype order — exists only across tables, so it needs all of
-    them in one call.
+    One table is passed the same way as twenty. What connects tables — relations, the field each
+    is traversed by, cardinality, the subtype order — exists only *between* them, so they are
+    read together; a single-table call is simply the case where that part comes back empty.
     """
 
     tables: dict[str, list[dict[str, Any]]]
@@ -433,46 +425,23 @@ def create_app(world: World | None = None) -> FastAPI:
 
     @app.post("/build-kb-from-data")
     def build_kb_from_data(req: BuildFromDataRequest) -> dict[str, Any]:
-        """Derive a draft ontology from existing rows — the other way an ontology begins.
+        """Workflow B: existing tables -> a draft ontology, with the evidence for every claim.
 
         Not every customer has a document describing their domain; most have tables. This reads
-        sample rows and proposes an entity type with one typed property per column, recording the
-        table it came from. What it infers from values is a guess — a date column read as text,
-        a numeric code read as a number — so it enters the same lifecycle as a text-built
-        ontology: a draft, with the review checklist naming what a machine reading data cannot
-        settle, and no authority over an answer until a person publishes it.
-        """
-        from loka_ontology.infer import infer_ontology_from_rows, to_yaml
+        sample rows and proposes an entity type per table with one typed property per column.
 
-        if not req.rows:
-            raise HTTPException(status_code=400, detail="no rows provided")
-        try:
-            onto = infer_ontology_from_rows(
-                req.entity_type, req.rows, backing=req.backing
-            )
-        except Exception as exc:  # noqa: BLE001 - a malformed sample is a client error
-            raise HTTPException(status_code=400, detail=f"could not infer: {exc}") from exc
+        One table is passed the same way as twenty, because one table is not a different problem
+        — it is the case where the interesting part is empty. What connects tables (relations,
+        the field each is walked by, cardinalities, the subtype order) is the part of Ω that
+        makes it more than a schema, and it exists only across tables; asking for it separately
+        would be two endpoints for one question.
 
-        rec = _store().create_draft(to_yaml(onto), source=f"data:{req.backing or 'rows'}")
-        out = rec.as_dict()
-        out["rows_sampled"] = len(req.rows)
-        return out
-
-    @app.post("/build-kb-from-tables")
-    def build_kb_from_tables(req: BuildFromTablesRequest) -> dict[str, Any]:
-        """Derive a draft ontology from several tables — including what connects them.
-
-        The single-table route proposes one entity and stops. Relations, the field each is
-        walked by, cardinalities and the subtype order live between tables, and they are the part
-        of Ω that makes it more than a schema. They are also decidable: a relation is proposed
-        because one column's values are contained in another table's primary key, which is a fact
-        that can be counted rather than a judgement that can be hallucinated.
-
-        The response carries the evidence for every proposal — how many values resolved out of
-        how many, how many were distinct, what the name similarity was — and the list of things
-        this method cannot reach at all. Verbs, constraints, actions, guards and norms are
-        decisions, not observations; a reviewer supplies them, and the draft says so rather than
-        leaving their absence to be discovered later.
+        Those connections are decidable rather than judged: a relation is proposed because one
+        column's values are contained in another table's primary key, which can be counted. The
+        response carries the counts. What it cannot reach at all — verbs, constraints, actions,
+        guards, norms — is listed too, because those are decisions rather than observations. A
+        draft, like every other route in, with no authority over an answer until someone
+        publishes it.
         """
         from loka_ontology.infer import to_yaml
         from loka_ontology.infer_tables import infer_ontology_from_tables
@@ -488,7 +457,7 @@ def create_app(world: World | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail=f"could not infer: {exc}") from exc
 
         rec = _store().create_draft(
-            to_yaml(onto), source=f"tables:{','.join(sorted(req.tables))}"
+            to_yaml(onto), source=f"data:{','.join(sorted(req.tables))}"
         )
         out = rec.as_dict()
         out["tables_read"] = {name: len(rows) for name, rows in req.tables.items()}

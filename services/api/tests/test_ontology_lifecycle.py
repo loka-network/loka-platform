@@ -199,12 +199,12 @@ def test_an_ontology_can_begin_from_data_and_enters_the_same_lifecycle() -> None
     client = TestClient(create_app())
     body = client.post(
         "/build-kb-from-data",
-        json={"entity_type": "Seller", "backing": "sellers_table", "rows": _ROWS},
+        json={"tables": {"Seller": _ROWS}, "backing": {"Seller": "sellers_table"}},
     ).json()
 
     assert body["state"] == "draft"
     assert body["can_authorize_answers"] is False
-    assert body["source"] == "data:sellers_table"
+    assert body["source"] == "data:Seller"
     assert "backing: sellers_table" in body["ontology_yaml"]   # where the rows came from
     assert "type: double" in body["ontology_yaml"]             # inferred from the values
     assert body["review"], "inference leaves decisions a machine reading data cannot settle"
@@ -214,17 +214,27 @@ def test_inference_guesses_and_the_checklist_is_where_that_is_caught() -> None:
     """`joined` holds dates and is inferred as text. The guess is not hidden: it is a draft, and
     review is the step that corrects it."""
     client = TestClient(create_app())
-    body = client.post(
-        "/build-kb-from-data", json={"entity_type": "Seller", "rows": _ROWS}
-    ).json()
+    body = client.post("/build-kb-from-data", json={"tables": {"Seller": _ROWS}}).json()
     assert "name: joined\n    type: string" in body["ontology_yaml"]   # the wrong guess, visible
     assert body["state"] == "draft"                                    # and not authoritative
 
 
 def test_building_from_no_rows_is_refused() -> None:
     client = TestClient(create_app())
-    resp = client.post("/build-kb-from-data", json={"entity_type": "Seller", "rows": []})
+    assert client.post("/build-kb-from-data", json={"tables": {}}).status_code == 400
+    resp = client.post("/build-kb-from-data", json={"tables": {"Seller": []}})
     assert resp.status_code == 400
+    assert "Seller" in resp.json()["detail"]   # which table was empty, not just that one was
+
+
+def test_one_table_is_the_same_call_as_many() -> None:
+    """A single table is not a different problem; it is the case where the part that lives
+    between tables comes back empty. Two endpoints for that would be two names for one question.
+    """
+    client = TestClient(create_app())
+    body = client.post("/build-kb-from-data", json={"tables": {"Seller": _ROWS}}).json()
+    assert body["tables_read"] == {"Seller": len(_ROWS)}
+    assert body["inference"]["accepted"] == {"links": 0, "subtypes": 0}
 
 
 # ---- the checklist has to be read to be useful ----

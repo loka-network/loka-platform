@@ -108,7 +108,14 @@ def infer_ontology_from_rows(
     backing: str | None = None,
     version: str = "draft-v1",
 ) -> Ontology:
-    """Build a one-entity draft ontology from sample rows."""
+    """Build a one-entity draft ontology from sample rows.
+
+    The single-table core, not a route of its own. Anything reading tables should go through
+    :func:`infer_ontology_from_tables`, which handles one table as the case where the part that
+    lives *between* tables — relations, their traversal fields, cardinality, the subtype order —
+    comes back empty. Offering both as ways in would be two names for one question, and the
+    narrower one silently drops the half of Ω that makes it more than a schema.
+    """
     et = infer_entity_type(entity_type, rows, subtype_of=subtype_of, backing=backing)
     return Ontology(version=version, entities={et.name: et})
 

@@ -88,10 +88,8 @@ def test_provenance_survives_review_and_publication() -> None:
 def test_a_data_built_draft_is_distinguishable_from_a_text_built_one() -> None:
     rows = [{"seller_id": "s1", "on_time_rate": 0.9}, {"seller_id": "s2", "on_time_rate": 0.7}]
     client = TestClient(create_app())
-    body = client.post(
-        "/build-kb-from-data", json={"entity_type": "Seller", "rows": rows}
-    ).json()
-    assert body["source"] == "data:rows"
+    body = client.post("/build-kb-from-data", json={"tables": {"Seller": rows}}).json()
+    assert body["source"] == "data:Seller"
     assert _build(client)["source"].startswith("builder:")
 
 
