@@ -14,6 +14,14 @@ from .builder import (
     build,
 )
 from .compare import OntologyComparison, compare_ontologies, grounding_checklist
+from .concept_discovery import (
+    ClusterFirstBuilder,
+    Concept,
+    ConceptDiscovery,
+    DiscoveryUnavailable,
+    discover_concepts,
+    extract_terms,
+)
 from .engine import BindingCheck, OntologyEngine
 from .infer import (
     guess_primary_key,
@@ -66,6 +74,12 @@ __all__ = [
     "RelationFirstBuilder",
     "HeadTailBuilder",
     "PARADIGMS",
+    "ClusterFirstBuilder",
+    "ConceptDiscovery",
+    "Concept",
+    "DiscoveryUnavailable",
+    "discover_concepts",
+    "extract_terms",
     "Grounding",
     "EntityDraft",
     "SouffleTypeChecker",

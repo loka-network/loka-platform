@@ -36,6 +36,10 @@ _EXTRACTION_METHODS = {
     "staged": "text -> LLM -> ontology, four staged extractions, each citing the source",
     "relation_first": "text -> LLM -> ontology, relation vocabulary fixed before extraction",
     "head_tail": "text -> LLM -> ontology, instance triples per fragment lifted to type level",
+    "cluster_first": (
+        "text -> ontology, concepts clustered from the document's own noun phrases and only "
+        "named by the model"
+    ),
 }
 
 
@@ -58,6 +62,9 @@ class BuildKBRequest(BaseModel):
     #:   relation_first  decide the relation vocabulary in its own pass, then extract within it.
     #:   head_tail       map mentions to types, extract between mentions per fragment, lift to
     #:                   type level. A type relation exists because instances were found.
+    #:   cluster_first   the concepts come from the document, not the model: its noun phrases are
+    #:                   clustered and the model only names each group. Needs the [discovery]
+    #:                   extra, and is offered only where that is installed.
     #:
     #: All four are kept because comparing them on one document is how the difference gets
     #: shown rather than asserted.

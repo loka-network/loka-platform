@@ -588,9 +588,22 @@ class HeadTailBuilder(_StagedBuilder):
         return tuple(out)
 
 
+def _paradigms() -> dict[str, Any]:
+    """Paradigm name -> builder. ``cluster_first`` needs the optional discovery extra, so it is
+    offered only when that is installed rather than failing at request time."""
+    out: dict[str, Any] = {
+        "staged": StagedLLMBuilder,
+        "relation_first": RelationFirstBuilder,
+        "head_tail": HeadTailBuilder,
+    }
+    try:
+        from .concept_discovery import ClusterFirstBuilder
+
+        out["cluster_first"] = ClusterFirstBuilder
+    except ImportError:  # pragma: no cover - only when the module itself cannot be imported
+        pass
+    return out
+
+
 #: paradigm name -> builder, for the API and for comparing them on one document
-PARADIGMS: dict[str, type[_StagedBuilder]] = {
-    "staged": StagedLLMBuilder,
-    "relation_first": RelationFirstBuilder,
-    "head_tail": HeadTailBuilder,
-}
+PARADIGMS: dict[str, Any] = _paradigms()

@@ -8,6 +8,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Bottom-up concept discovery: spaCy for noun phrases, sentence-transformers for embeddings,
+# scikit-learn for affinity propagation. Heavy, and needed by one paradigm out of five, so the
+# package works without them and that paradigm is simply not offered.
+discovery = ["spacy>=3.7", "sentence-transformers>=2.7", "scikit-learn>=1.4"]
 dev = [
     "pytest>=8.0",
     "mypy>=1.10",

@@ -29,7 +29,7 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-METHODS = ("single_shot", "staged", "relation_first", "head_tail")
+METHODS = ("single_shot", "staged", "relation_first", "head_tail", "cluster_first")
 
 
 def _post(url: str, payload: dict[str, Any], timeout: float) -> tuple[int, Any]:

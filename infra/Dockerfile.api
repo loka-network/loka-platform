@@ -1,7 +1,14 @@
 # Loka Platform API image.
 #   docker build -f infra/Dockerfile.api -t loka-api .
+#   docker build -f infra/Dockerfile.api --build-arg DISCOVERY=1 -t loka-api .
 #   docker run -p 8000:8000 loka-api
 FROM python:3.11-slim
+
+# Bottom-up concept discovery (the cluster_first extraction paradigm) needs spaCy, an embedding
+# model and scikit-learn — which pull PyTorch and add a couple of gigabytes for one paradigm out
+# of five. Off by default; the paradigm is then simply not offered rather than failing at
+# request time. Build with --build-arg DISCOVERY=1 to compare it against the others.
+ARG DISCOVERY=0
 
 WORKDIR /app
 COPY . /app
@@ -18,6 +25,11 @@ RUN pip install --no-cache-dir \
     ./services/grounding \
     "./services/serving[llm]" \
     ./services/api
+
+RUN if [ "$DISCOVERY" = "1" ]; then \
+        pip install --no-cache-dir "./services/ontology[discovery]" && \
+        python -m spacy download en_core_web_sm; \
+    fi
 
 EXPOSE 8000
 CMD ["uvicorn", "loka_api.app:app", "--host", "0.0.0.0", "--port", "8000"]
