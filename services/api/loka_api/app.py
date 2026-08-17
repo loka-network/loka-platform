@@ -305,17 +305,21 @@ def create_app(world: World | None = None) -> FastAPI:
         builder_mode = "keyword"
         provenance: dict[str, Any] = {}
 
+        from loka_ontology import PARADIGMS
+
+        # Checked before anything else, not inside the model branch: with no model configured a
+        # misspelt method used to be accepted silently and answered by the rule-based builder,
+        # so a caller comparing paradigms could collect a row for one that never ran.
+        if req.method != "single_shot" and req.method not in PARADIGMS:
+            known = ", ".join(["single_shot", *sorted(PARADIGMS)])
+            raise HTTPException(
+                status_code=400,
+                detail=f"unknown method {req.method!r}; expected one of {known}",
+            )
+
         llm_requested = os.getenv("LOKA_LLM_BUILD", "").lower() in ("1", "true", "yes")
         if llm_requested:
             # texts -> LLM -> ontology.
-            from loka_ontology import PARADIGMS
-
-            if req.method != "single_shot" and req.method not in PARADIGMS:
-                known = ", ".join(["single_shot", *sorted(PARADIGMS)])
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"unknown method {req.method!r}; expected one of {known}",
-                )
             try:
                 from loka_ontology import LLMBuilder
                 from loka_serving import llm_for, model_for

@@ -134,12 +134,20 @@ def test_the_rule_based_builder_is_still_available_when_asked_for(monkeypatch: A
 def test_the_extraction_method_is_selectable_and_recorded(monkeypatch: Any) -> None:
     """Two methods over one document is how the difference between them is shown rather than
     asserted, so which one ran has to be on the record."""
-    monkeypatch.setenv("LOKA_LLM_BUILD", "1")
+    # Refused with or without a model. Accepting it when none is configured would hand a
+    # caller a row for a paradigm that never ran.
+    monkeypatch.delenv("LOKA_LLM_BUILD", raising=False)
     resp = TestClient(create_app()).post(
         "/build-kb", json={"texts": [_TEXT], "method": "nonsense"}
     )
     assert resp.status_code == 400
     assert "single_shot" in resp.json()["detail"]
+
+    monkeypatch.setenv("LOKA_LLM_BUILD", "1")
+    resp = TestClient(create_app()).post(
+        "/build-kb", json={"texts": [_TEXT], "method": "nonsense"}
+    )
+    assert resp.status_code == 400
 
 
 def test_an_ungrounded_concept_reaches_the_review_list(monkeypatch: Any) -> None:

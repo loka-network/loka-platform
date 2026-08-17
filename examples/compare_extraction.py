@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import socket
 import time
 import urllib.error
 import urllib.request
@@ -33,6 +34,13 @@ METHODS = ("single_shot", "staged", "relation_first", "head_tail", "cluster_firs
 
 
 def _post(url: str, payload: dict[str, Any], timeout: float) -> tuple[int, Any]:
+    """POST and always return a (status, body) pair.
+
+    A paradigm that hangs must not take the comparison with it. These runs are minutes long —
+    five paradigms, several model calls each — so an exception escaping here throws away every
+    result already collected and the whole thing starts over. A timeout is a finding about that
+    paradigm, which is exactly what this script exists to record.
+    """
     data = json.dumps(payload).encode()
     req = urllib.request.Request(
         url, data=data, headers={"Content-Type": "application/json"}, method="POST"
@@ -45,6 +53,13 @@ def _post(url: str, payload: dict[str, Any], timeout: float) -> tuple[int, Any]:
             return exc.code, json.load(exc)
         except Exception:  # noqa: BLE001 - a non-JSON error body is still worth reporting
             return exc.code, {"detail": exc.reason}
+    except (TimeoutError, socket.timeout) as exc:  # noqa: UP041 - socket.timeout on older 3.x
+        return 0, {"detail": (
+            f"no reply within {timeout:.0f}s. The server may still be working: this is the "
+            f"client giving up, not the extraction failing. {exc}"
+        )}
+    except urllib.error.URLError as exc:
+        return 0, {"detail": f"could not reach {url}: {exc.reason}"}
 
 
 def _summarise(method: str, status: int, body: Any, seconds: float) -> dict[str, Any]:
@@ -89,7 +104,9 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--url", default="http://localhost:8100")
     ap.add_argument("--text", default=os.path.join(here, "supply_domain.md"))
-    ap.add_argument("--timeout", type=float, default=900.0)
+    # A staged paradigm is several model calls, and a reasoning model spends minutes per call,
+    # so the whole extraction can take far longer than a single-reply one.
+    ap.add_argument("--timeout", type=float, default=1800.0)
     ap.add_argument("--json", dest="out", help="write the full responses here")
     ap.add_argument("--methods", nargs="*", default=list(METHODS))
     args = ap.parse_args()
@@ -110,7 +127,15 @@ def main() -> None:
         row = _summarise(method, status, body, time.monotonic() - started)
         full[method] = {"status": status, "body": body}
         rows.append(row)
-        print(" ok" if row["ok"] else f" FAILED: {row['error'][:70]}")
+        print(
+            f" ok ({row['seconds']}s)" if row["ok"]
+            else f" FAILED after {row['seconds']}s: {row['error'][:90]}"
+        )
+        # Written after every method, not at the end: a run that dies on the last paradigm
+        # should not cost the four that already completed.
+        if args.out:
+            with open(args.out, "w", encoding="utf-8") as f:
+                json.dump(full, f, indent=1, ensure_ascii=False)
 
     if any(r.get("ok") and r.get("builder") != "llm" for r in rows):
         print(
@@ -124,21 +149,25 @@ def main() -> None:
         return "-" if value is None else str(value)
 
     print()
-    header = ("method", "ok", "ents", "rels", "verbs", "calls", "longest", "grounded", "review")
-    print(f"{header[0]:<15}{header[1]:<5}{header[2]:>6}{header[3]:>6}{header[4]:>7}"
-          f"{header[5]:>7}{header[6]:>9}{header[7]:>10}{header[8]:>8}")
-    print("-" * 73)
+    header = ("method", "ok", "secs", "ents", "rels", "verbs", "calls", "longest",
+              "grounded", "review")
+    print(f"{header[0]:<15}{header[1]:<5}{header[2]:>7}{header[3]:>6}{header[4]:>6}"
+          f"{header[5]:>7}{header[6]:>7}{header[7]:>9}{header[8]:>10}{header[9]:>8}")
+    print("-" * 80)
     for row in rows:
         grounded = (
             f"{row['grounded']}/{row['checked']}"
             if row.get("checked") else "-"
         )
         print(
-            f"{row['method']:<15}{'y' if row['ok'] else 'n':<5}"
+            f"{row['method']:<15}{'y' if row['ok'] else 'n':<5}{cell(row, 'seconds'):>7}"
             f"{cell(row, 'entities'):>6}{cell(row, 'relations'):>6}{cell(row, 'verbs'):>7}"
             f"{cell(row, 'calls'):>7}{cell(row, 'longest_reply'):>9}{grounded:>10}"
             f"{cell(row, 'review_items'):>8}"
         )
+    for row in rows:
+        if not row["ok"]:
+            print(f"\n{row['method']}: {row['error']}")
 
     for row in rows:
         if row.get("ungrounded"):
