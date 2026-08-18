@@ -62,6 +62,24 @@ def _post(url: str, payload: dict[str, Any], timeout: float) -> tuple[int, Any]:
         return 0, {"detail": f"could not reach {url}: {exc.reason}"}
 
 
+def _post_get(url: str, timeout: float) -> tuple[int, dict[str, Any]]:
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as resp:  # noqa: S310 - operator's URL
+            body: dict[str, Any] = json.load(resp)
+            return resp.status, body
+    except Exception as exc:  # noqa: BLE001 - a poll that fails is retried, not fatal
+        return 0, {"detail": str(exc)}
+
+
+def _write(path: str | None, full: dict[str, Any]) -> None:
+    """Written after every completion, not at the end: an interrupted run should not cost the
+    paradigms that already finished."""
+    if not path:
+        return
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(full, f, indent=1, ensure_ascii=False)
+
+
 def _summarise(method: str, status: int, body: Any, seconds: float) -> dict[str, Any]:
     if status != 200:
         detail = body.get("detail") if isinstance(body, dict) else body
@@ -108,8 +126,8 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--url", default="http://localhost:8100")
     ap.add_argument("--text", default=os.path.join(here, "supply_domain.md"))
-    # A staged paradigm is several model calls, and a reasoning model spends minutes per call,
-    # so the whole extraction can take far longer than a single-reply one.
+    # How long to keep polling before reporting what is still running. The jobs themselves are
+    # unaffected: they continue on the server and can be collected afterwards.
     ap.add_argument("--timeout", type=float, default=3600.0)
     ap.add_argument("--json", dest="out", help="write the full responses here")
     ap.add_argument("--methods", nargs="*", default=list(METHODS))
@@ -120,26 +138,62 @@ def main() -> None:
     print(f"document: {args.text}  ({len(text)} chars)")
     print(f"api:      {args.url}\n")
 
+    # All submitted first, then polled. Run one after another these take hours: an extraction
+    # is minutes of model time, and five of them in sequence is the sum. They do not depend on
+    # each other, so nothing is gained by waiting.
     rows: list[dict[str, Any]] = []
     full: dict[str, Any] = {}
+    pending: dict[str, str] = {}
     for method in args.methods:
-        print(f"  {method} ...", end="", flush=True)
-        started = time.monotonic()
         status, body = _post(
-            f"{args.url}/build-kb", {"texts": [text], "method": method}, args.timeout
+            f"{args.url}/build-kb",
+            {"texts": [text], "method": method, "background": True},
+            60.0,
         )
-        row = _summarise(method, status, body, time.monotonic() - started)
-        full[method] = {"status": status, "body": body}
-        rows.append(row)
-        print(
-            f" ok ({row['seconds']}s)" if row["ok"]
-            else f" FAILED after {row['seconds']}s: {row['error'][:90]}"
-        )
-        # Written after every method, not at the end: a run that dies on the last paradigm
-        # should not cost the four that already completed.
-        if args.out:
-            with open(args.out, "w", encoding="utf-8") as f:
-                json.dump(full, f, indent=1, ensure_ascii=False)
+        if status != 200 or not isinstance(body, dict) or not body.get("job_id"):
+            rows.append(_summarise(method, status, body, 0.0))
+            print(f"  {method}: could not submit — {body}")
+            continue
+        pending[method] = body["job_id"]
+        print(f"  {method}: submitted as {body['job_id']}")
+
+    started = time.monotonic()
+    print("\npolling (Ctrl-C is safe — finished results are already written)\n")
+    try:
+        while pending:
+            for method, job_id in list(pending.items()):
+                status, job = _post_get(f"{args.url}/jobs/{job_id}", 60.0)
+                if status != 200 or not job.get("finished"):
+                    continue
+                del pending[method]
+                if job["state"] == "done":
+                    body, code = job["result"], 200
+                else:
+                    body, code = {"detail": job.get("detail") or job.get("error")}, 500
+                row = _summarise(method, code, body, job.get("seconds") or 0.0)
+                full[method] = {"status": code, "body": body}
+                rows.append(row)
+                print(
+                    f"  {method} ... ok ({row['seconds']}s)" if row["ok"]
+                    else f"  {method} ... FAILED after {row['seconds']}s: {row['error'][:90]}"
+                )
+                _write(args.out, full)
+            if pending:
+                if time.monotonic() - started > args.timeout:
+                    for method in pending:
+                        rows.append({
+                            "method": method, "ok": False,
+                            "seconds": round(time.monotonic() - started, 1),
+                            "error": f"still running after {args.timeout:.0f}s; "
+                                     f"poll GET /jobs/{pending[method]} later",
+                        })
+                    break
+                time.sleep(5)
+    except KeyboardInterrupt:
+        print("\ninterrupted. Jobs keep running on the server; collect them with:")
+        for method, job_id in pending.items():
+            print(f"    curl -s {args.url}/jobs/{job_id}    # {method}")
+    _write(args.out, full)
 
     if any(r.get("ok") and r.get("builder") != "llm" for r in rows):
         print(
@@ -147,6 +201,8 @@ def main() -> None:
             "   the paradigm. The rows below are the same extraction four times, not a\n"
             "   comparison. Set LOKA_LLM_BUILD=1 and a model on the API and re-run."
         )
+
+    rows.sort(key=lambda r: args.methods.index(r["method"]))
 
     def cell(row: dict[str, Any], key: str) -> str:
         value = row.get(key)
@@ -183,8 +239,6 @@ def main() -> None:
             print(f"{row['method']}: {key} = {value}")
 
     if args.out:
-        with open(args.out, "w", encoding="utf-8") as f:
-            json.dump(full, f, indent=1, ensure_ascii=False)
         print(f"\nfull responses -> {args.out}")
 
 

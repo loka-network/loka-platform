@@ -69,6 +69,11 @@ class BuildKBRequest(BaseModel):
     #: All four are kept because comparing them on one document is how the difference gets
     #: shown rather than asserted.
     method: str = "single_shot"
+    #: Submit the work and collect it later. An extraction takes minutes — that is the model's
+    #: speed — and holding an HTTP connection open for it means clients time out, proxies close
+    #: the socket, and an interrupted caller loses work that was nearly finished. With this set,
+    #: a job id comes back at once and ``GET /jobs/{id}`` has the result when it is ready.
+    background: bool = False
 
 
 class IngestRequest(BaseModel):
@@ -220,6 +225,10 @@ def create_app(world: World | None = None) -> FastAPI:
 
     app.state.ontologies = OntologyStore()  # draft -> validated -> published lifecycle
 
+    from .jobs import JobStore
+
+    app.state.jobs = JobStore()  # submitted-now, collected-later work
+
     def _store() -> OntologyStore:
         """Typed access to the lifecycle store (app.state is untyped)."""
         store: OntologyStore = app.state.ontologies
@@ -281,6 +290,10 @@ def create_app(world: World | None = None) -> FastAPI:
     def build_kb_endpoint(req: BuildKBRequest) -> dict[str, Any]:
         """Workflow A: domain texts -> validated ontology + DATA/METHODS needs (a KBSpec).
 
+        Set ``background`` to submit the work and collect it from ``GET /jobs/{id}``. An
+        extraction takes minutes, which is the model's speed and not something this endpoint can
+        shorten; what it can do is not require a caller to hold a connection open throughout.
+
         Follows texts->LLM->ontology when LOKA_LLM_BUILD is set and a model is
         configured (Claude or a self-hosted vLLM, via the model gateway); otherwise the
         deterministic rule-based builder. The response's ``builder`` field says which ran.
@@ -293,6 +306,17 @@ def create_app(world: World | None = None) -> FastAPI:
         import hashlib
         import os
         import uuid
+
+        if req.background:
+            # The same call, minus the flag, run on a thread. Written this way rather than as a
+            # separate code path so the background result cannot drift from the inline one.
+            inline = req.model_copy(update={"background": False})
+            job = app.state.jobs.submit(
+                "build-kb",
+                lambda: build_kb_endpoint(inline),
+                label=f"{req.method}, {sum(len(t) for t in req.texts)} chars",
+            )
+            return job.as_dict()
 
         from loka_ontology import OntologyLoadError, build
 
@@ -433,6 +457,20 @@ def create_app(world: World | None = None) -> FastAPI:
         out["provenance"] = dict(rec.provenance)
         out["review"] = rec.review  # what a human must decide before this can be published
         return out
+
+    @app.get("/jobs")
+    def list_jobs() -> dict[str, Any]:
+        """Every submitted job, newest first, without results."""
+        return {"jobs": app.state.jobs.list()}
+
+    @app.get("/jobs/{job_id}")
+    def get_job(job_id: str) -> dict[str, Any]:
+        """One job. ``finished`` says whether to poll again; ``result`` is the response the
+        synchronous call would have returned, and a failure carries the same detail it would."""
+        job = app.state.jobs.get(job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail=f"unknown job: {job_id}")
+        return job.as_dict()
 
     @app.post("/build-kb-from-data")
     def build_kb_from_data(req: BuildFromDataRequest) -> dict[str, Any]:
