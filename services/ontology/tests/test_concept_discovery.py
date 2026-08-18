@@ -144,6 +144,7 @@ def test_duplicate_concepts_are_merged_keeping_the_better_covered_name() -> None
     namer = ClusterNamer(client=_Namer(merge=[["Buyer", "Shopper"]]), model="test")
     a = Concept(name="Buyer", terms=("buyer",), occurrences=2, evidence="buyer")
     b = Concept(name="Shopper", terms=("shopper",), occurrences=9, evidence="shopper")
+    # Buyer is a fifth of Shopper: the shape of a split-off fragment, which is what merging is for
     kept, merged = namer.merge([a, b])
     assert [c.name for c in kept] == ["Shopper"]
     assert kept[0].occurrences == 11
@@ -167,3 +168,20 @@ def test_a_group_the_model_declines_to_name_is_left_out() -> None:
     result = discover_concepts(_TEXT, ClusterNamer(client=_Refuses(), model="test"))
     assert result.concepts == []
     assert result.terms_extracted > 0  # the document was read; nothing was nameable
+
+
+def test_two_concepts_of_comparable_weight_are_not_merged() -> None:
+    """The failure this rule exists for. On a real document the model proposed folding
+    Marketplace into Seller and Parcel into Purchase — relationships, not identities. Both pairs
+    were of comparable coverage, which is the shape of two concepts rather than one split in
+    two, and a marketplace's sellers and its shoppers appear together in every sentence about a
+    sale precisely because they are opposites."""
+    namer = ClusterNamer(client=_Namer(merge=[["Marketplace", "Seller"]]), model="test")
+    marketplace = Concept(
+        name="Marketplace", terms=("marketplace",), occurrences=17, evidence="marketplace"
+    )
+    seller = Concept(name="Seller", terms=("seller",), occurrences=30, evidence="seller")
+    kept, merged = namer.merge([marketplace, seller])
+    assert {c.name for c in kept} == {"Marketplace", "Seller"}
+    assert merged == []
+    assert namer.refused_merges == [("Marketplace", "Seller")]  # declined, and said so

@@ -49,6 +49,15 @@ MIN_CLUSTER_SIZE = 2
 #: (carrier, delivery, route, threshold).
 MIN_TERM_OCCURRENCES = 1
 
+#: How much smaller a concept must be than the one it is folded into.
+#:
+#: A threshold fitted to observed failures rather than derived, and the refusals are reported so
+#: a reviewer can overrule it. The reasoning behind the shape: a merge repairs a split, the
+#: split-off piece is the smaller one, and two concepts of similar weight are not that. The
+#: value separates the merges that were right (Buyer at a fifth of Shopper) from the ones that
+#: were not (Marketplace at over half of Seller, Parcel at over half of Purchase).
+_MERGE_FRAGMENT_RATIO = 0.4
+
 #: Quantile of the observed similarities used as affinity propagation's ``preference``.
 #:
 #: ``preference`` is each point's self-similarity — how readily it becomes its own exemplar — so
@@ -117,6 +126,8 @@ class ConceptDiscovery:
     small_clusters: list[tuple[str, ...]] = field(default_factory=list)
     #: clusters the merge step judged to be one concept
     merged: list[tuple[str, ...]] = field(default_factory=list)
+    #: merges the model proposed and the size rule declined
+    refused_merges: list[tuple[str, ...]] = field(default_factory=list)
     terms_extracted: int = 0
     clusters_formed: int = 0
 
@@ -128,6 +139,7 @@ class ConceptDiscovery:
             "dropped_small_clusters": [list(c) for c in self.small_clusters],
             "rare_terms": [{"term": t, "occurrences": n} for t, n in self.rare_terms[:40]],
             "merged": [list(m) for m in self.merged],
+            "refused_merges": [list(m) for m in self.refused_merges],
         }
 
 
@@ -250,10 +262,15 @@ class ClusterNamer:
     )
     MERGE = (
         "These are named concepts from one document, each with the phrases it was named from. "
-        "Some may be the same concept arrived at twice. Group together only those that are the "
-        'same thing. Reply with ONLY JSON: {"same": [[<name>, <name>, ...], ...], '
-        '"keep": <one name per group to keep>}. Return an empty list if none are duplicates. '
-        "No prose, no code fences."
+        "Clustering deliberately over-splits, so ONE concept may appear twice under different "
+        "names — for example Buyer and Purchaser. Your job is to find only that: two names for "
+        "the same thing.\n"
+        "Do NOT group concepts that are merely related, that interact, or that belong to the "
+        "same part of the domain. A seller and a shopper both appear in every sale and are not "
+        "the same concept. A parcel and the purchase it belongs to are not the same concept. "
+        "If in doubt, do not group.\n"
+        'Reply with ONLY JSON: {"same": [[<name>, <name>], ...]}. An empty list is the expected '
+        "answer for most documents. No prose, no code fences."
     )
 
     def __init__(
@@ -262,13 +279,15 @@ class ClusterNamer:
         client: Any,
         model: str = "claude-opus-4-8",
         domain: str = "business",
-        max_tokens: int = 2000,
+        max_tokens: int = 16000,
     ) -> None:
         self._client = client
         self._model = model
         self._domain = domain
         self._max_tokens = max_tokens
         self.calls: list[dict[str, Any]] = []
+        #: merges declined for joining two of the document's principal concepts
+        self.refused_merges: list[tuple[str, ...]] = []
 
     def _ask(self, stage: str, system: str, user: str) -> dict[str, Any]:
         import time  # noqa: PLC0415 - kept next to its single use
@@ -324,10 +343,21 @@ class ClusterNamer:
         obj = self._ask("merging", self.MERGE, listing)
         by_name = {c.name: c for c in concepts}
         merged: list[tuple[str, ...]] = []
+        refused: list[tuple[str, ...]] = []
         dropped: set[str] = set()
+        # Merging exists to repair over-splitting: to rejoin a fragment to the concept it was
+        # split from. A fragment is by nature the smaller piece, so two concepts of comparable
+        # coverage are two concepts, not one said twice. Asked for duplicates a model reaches
+        # instead for whatever co-occurs — on a real document it merged Marketplace into Seller
+        # and Parcel into Purchase, which are relationships, not identities.
+        share = {c.name: c.occurrences for c in concepts}
         for group in obj.get("same", []) or []:
             names = [str(n) for n in group if str(n) in by_name] if isinstance(group, list) else []
             if len(names) < 2:
+                continue
+            weights = [share[n] for n in names]
+            if min(weights) >= _MERGE_FRAGMENT_RATIO * max(weights):
+                refused.append(tuple(names))
                 continue
             # Keep the one that covers the most of the document; it is the reading the text
             # supports best, and the alternative — keeping the first — is arbitrary.
@@ -341,6 +371,7 @@ class ClusterNamer:
             )
             dropped.update(n for n in names if n != keeper)
             merged.append(tuple(names))
+        self.refused_merges = refused
         return [c for n, c in by_name.items() if n not in dropped], merged
 
 
@@ -380,6 +411,7 @@ def discover_concepts(
 
     named = namer.name(keep, counts)
     result.concepts, result.merged = namer.merge(named)
+    result.refused_merges = list(namer.refused_merges)
     result.concepts.sort(key=lambda c: -c.occurrences)
     return result
 
@@ -405,7 +437,7 @@ class ClusterFirstBuilder:
         client: Any,
         model: str = "claude-opus-4-8",
         domain: str = "business",
-        max_tokens: int = 4000,
+        max_tokens: int = 16000,
     ) -> None:
         from .staged_builder import StagedLLMBuilder  # noqa: PLC0415 - avoids an import cycle
 

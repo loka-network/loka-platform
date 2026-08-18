@@ -52,6 +52,16 @@ _BASE_TYPE = {
 }
 _VERB_CLASS = {"factual", "communicative", "institutional"}
 
+#: Output budget every extraction asks for, whichever paradigm it belongs to.
+#:
+#: One number, because it is not only a ceiling — it changes how much the model writes. Measured
+#: on the same document with the same prompt, deepseek-chat returned 874 characters at 4,096 and
+#: 2,819 at 16,000, both with finish_reason=stop: neither was truncated, it simply wrote more
+#: when allowed more. So paradigms given different budgets are not comparable, and the
+#: single-shot route asking for 4,000 while carrying an entire ontology in one reply was the
+#: most starved of them.
+EXTRACTION_MAX_TOKENS = 16000
+
 
 class OntologyBuildError(RuntimeError):
     """The model replied, but not with an ontology this can read. Carries what came back: a
@@ -185,7 +195,7 @@ class LLMBuilder:
     def propose(self, texts: Sequence[str]) -> OntologyDraft:
         resp = self._client.messages.create(
             model=self._model,
-            max_tokens=4000,
+            max_tokens=EXTRACTION_MAX_TOKENS,
             system=self._system,
             messages=[{"role": "user", "content": "\n".join(texts)}],
         )

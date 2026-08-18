@@ -425,7 +425,7 @@ def test_one_failed_batch_does_not_discard_the_others() -> None:
         def _create(self, *, system: str, **kw: Any) -> Any:
             if "give the attributes" in system:
                 self.attribute_calls += 1
-                if self.attribute_calls == 1:
+                if self.attribute_calls <= 3:  # one batch, failing every retry
                     return SimpleNamespace(
                         content=[SimpleNamespace(type="text", text="not json at all")]
                     )
@@ -448,4 +448,56 @@ def test_one_failed_batch_does_not_discard_the_others() -> None:
     draft = builder.propose([_TEXT])
     assert len(draft.entities) == 36           # the run completed
     assert builder.notes["failed_stages"]      # and said which batch did not
-    assert client.attribute_calls == 3
+    # three batches, and the one that returned unreadable JSON was asked twice more
+    assert client.attribute_calls == 5
+
+
+def test_unreadable_json_is_asked_again_rather_than_failing_the_paradigm() -> None:
+    """A reply that ends in a balanced brace and fails mid-way is a stray quote, not a budget
+    problem — more tokens do not fix it and the same request usually does not repeat it.
+    relation_first died on exactly this at its first stage while staged, sending the identical
+    prompt, succeeded: one unlucky reply cost a whole paradigm."""
+    class _OnceBad:
+        def __init__(self) -> None:
+            self.attempts = 0
+            self.messages = SimpleNamespace(create=self._create)
+
+        def _create(self, *, system: str, **kw: Any) -> Any:
+            if "List the entity types" in system:
+                self.attempts += 1
+                if self.attempts == 1:
+                    text = '{"entities": [{"name" "Seller"}]}'   # missing colon
+                else:
+                    text = json.dumps(_GOOD["List the entity types"])
+                return SimpleNamespace(content=[SimpleNamespace(type="text", text=text)])
+            for marker, reply in _GOOD.items():
+                if marker in system:
+                    return SimpleNamespace(
+                        content=[SimpleNamespace(type="text", text=json.dumps(reply))]
+                    )
+            raise AssertionError("unscripted stage")
+
+    client = _OnceBad()
+    builder = StagedLLMBuilder(client=client, model="test")
+    draft = builder.propose([_TEXT])
+    assert len(draft.entities) == 6          # the run completed
+    assert client.attempts == 2              # after one retry
+    failed = [c for c in builder.stage_calls if "json_error" in c]
+    assert failed and "Expecting" in failed[0]["json_error"]  # and the bad reply is on record
+
+
+def test_a_stage_that_never_returns_readable_json_still_fails() -> None:
+    """Retrying is a fix for bad luck, not a way to make a broken prompt look like it works."""
+    class _AlwaysBad:
+        def __init__(self) -> None:
+            self.attempts = 0
+            self.messages = SimpleNamespace(create=self._create)
+
+        def _create(self, **kw: Any) -> Any:
+            self.attempts += 1
+            return SimpleNamespace(content=[SimpleNamespace(type="text", text="{oops")])
+
+    client = _AlwaysBad()
+    with pytest.raises(OntologyBuildError):
+        StagedLLMBuilder(client=client, model="test").propose([_TEXT])
+    assert client.attempts == 3  # the original and two retries, then it stops

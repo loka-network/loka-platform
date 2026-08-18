@@ -40,7 +40,14 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import Any
 
-from .builder import _BASE_TYPE, _VERB_CLASS, EntityDraft, OntologyBuildError, OntologyDraft
+from .builder import (
+    _BASE_TYPE,
+    _VERB_CLASS,
+    EXTRACTION_MAX_TOKENS,
+    EntityDraft,
+    OntologyBuildError,
+    OntologyDraft,
+)
 
 #: Entities per call in the attribute stage.
 #:
@@ -51,6 +58,14 @@ from .builder import _BASE_TYPE, _VERB_CLASS, EntityDraft, OntologyBuildError, O
 #: paradigms that add stages on top of them timed out at thirty minutes. Batching wider trades
 #: headroom nobody was using for calls that were the actual cost.
 _ATTR_BATCH = 12
+
+#: Extra attempts when a reply is not readable JSON.
+#:
+#: Not a token problem and not fixed by a larger budget: a reply that ends in a balanced brace
+#: and fails mid-way is a stray quote or a missing colon, which the same request usually does
+#: not repeat. relation_first died on exactly this at its first stage while staged, sending the
+#: identical prompt, succeeded — one unlucky reply cost a whole paradigm.
+_JSON_RETRIES = 2
 
 #: Independent calls run at once, up to this many. Attribute batches do not depend on each
 #: other and neither do fragments, yet they were issued one at a time — so a paradigm's wall
@@ -196,7 +211,11 @@ class _StagedBuilder:
     )
 
     def __init__(
-        self, *, client: Any, model: str = "claude-opus-4-8", max_tokens: int = 4000
+        self,
+        *,
+        client: Any,
+        model: str = "claude-opus-4-8",
+        max_tokens: int = EXTRACTION_MAX_TOKENS,
     ) -> None:
         self._client = client
         self._model = model
@@ -247,21 +266,39 @@ class _StagedBuilder:
         # Timed per stage. Wall clock is what decides whether a paradigm is usable at all — two
         # of them could not finish inside half an hour — and a total tells you that without
         # telling you which stage to shorten.
-        started = time.monotonic()
-        resp = self._client.messages.create(
-            model=self._model,
-            max_tokens=self._max_tokens,
-            system=system,
-            messages=[{"role": "user", "content": user}],
-        )
-        elapsed = time.monotonic() - started
-        text = "".join(
-            getattr(b, "text", "") for b in resp.content if getattr(b, "type", "") == "text"
-        )
-        self.stage_calls.append(
-            {"stage": stage, "reply_chars": len(text), "seconds": round(elapsed, 1)}
-        )
-        return _json_object(text, stage)
+        last: OntologyBuildError | None = None
+        for attempt in range(1 + _JSON_RETRIES):
+            started = time.monotonic()
+            resp = self._client.messages.create(
+                model=self._model,
+                max_tokens=self._max_tokens,
+                system=system,
+                messages=[{"role": "user", "content": user}],
+            )
+            elapsed = time.monotonic() - started
+            text = "".join(
+                getattr(b, "text", "") for b in resp.content if getattr(b, "type", "") == "text"
+            )
+            record: dict[str, Any] = {
+                "stage": stage, "reply_chars": len(text), "seconds": round(elapsed, 1)
+            }
+            try:
+                obj = _json_object(text, stage)
+            except OntologyBuildError as exc:
+                # A truncated reply is a budget problem the client layer already escalates; this
+                # is the other kind, where the reply is complete and malformed. Asking again is
+                # the cheap fix, and how often it was needed is worth recording rather than
+                # hiding — a stage that only ever answers on the third try is a prompt problem.
+                record["json_error"] = str(exc)[:120]
+                self.stage_calls.append(record)
+                last = exc
+                continue
+            if attempt:
+                record["json_retries"] = attempt
+            self.stage_calls.append(record)
+            return obj
+        assert last is not None
+        raise last
 
     # ---- shared stages ----
 
