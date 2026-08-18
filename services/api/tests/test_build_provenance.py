@@ -191,3 +191,54 @@ def test_an_ungrounded_concept_reaches_the_review_list(monkeypatch: Any) -> None
     flagged = [i for i in body["review"] if i["kind"] == "not_in_source"]
     assert [i["target"] for i in flagged] == ["Warehouse"]
     assert flagged[0] is body["review"][0]  # first, not buried
+
+
+def test_the_default_paradigm_is_recorded_as_a_default(monkeypatch: Any) -> None:
+    """Which paradigm ran has to be on the record even when nobody chose it — otherwise a draft
+    built a year ago says only "an LLM did it", and the default may have moved since."""
+    monkeypatch.setenv("LOKA_LLM_BUILD", "1")
+
+    import json as _json
+    from types import SimpleNamespace
+
+    import loka_serving
+
+    class _Client:
+        def __init__(self) -> None:
+            self.messages = SimpleNamespace(create=self._create)
+
+        def _create(self, *, system: str, messages: list[dict[str, Any]], **kw: Any) -> Any:
+            if "List the entity types" in system:
+                reply: dict[str, Any] = {"entities": [
+                    {"name": "Bank", "subtype_of": None, "evidence": "The Central Bank"}
+                ]}
+            elif "naming concepts" in system:   # the cluster_first route names clusters
+                groups = [g for g in messages[0]["content"].strip().split("\n") if g]
+                reply = {"names": [
+                    {"group": int(g.split(":")[0]), "name": f"C{g.split(':')[0]}"}
+                    for g in groups
+                ]}
+            elif "same concept" in system:
+                reply = {"same": []}
+            elif "give the attributes" in system:
+                reply = {"attributes": {}}
+            elif "extract the relations" in system:
+                reply = {"relations": []}
+            else:
+                reply = {"verbs": []}
+            return SimpleNamespace(
+                content=[SimpleNamespace(type="text", text=_json.dumps(reply))]
+            )
+
+    monkeypatch.setattr(loka_serving, "llm_for", lambda _p: _Client())
+    client = TestClient(create_app())
+
+    chosen = client.post(
+        "/build-kb", json={"texts": [_TEXT], "method": "staged"}
+    ).json()["provenance"]
+    assert chosen["extraction"] == "staged"
+    assert chosen["extraction_chosen_by"] == "caller"
+
+    defaulted = client.post("/build-kb", json={"texts": [_TEXT]}).json()["provenance"]
+    assert defaulted["extraction"] in ("cluster_first", "staged")
+    assert defaulted["extraction_chosen_by"] == "default"

@@ -98,7 +98,7 @@ def test_jobs_can_be_listed_without_their_results() -> None:
     listed = client.get("/jobs").json()["jobs"]
     assert any(j["job_id"] == job["job_id"] for j in listed)
     assert all("result" not in j for j in listed)
-    assert listed[0]["label"].startswith("single_shot")
+    assert listed[0]["label"].startswith("default")   # no method was named
 
 
 def test_an_unknown_job_is_404() -> None:

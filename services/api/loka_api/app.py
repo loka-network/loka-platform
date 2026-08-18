@@ -66,9 +66,18 @@ class BuildKBRequest(BaseModel):
     #:                   clustered and the model only names each group. Needs the [discovery]
     #:                   extra, and is offered only where that is installed.
     #:
-    #: All four are kept because comparing them on one document is how the difference gets
-    #: shown rather than asserted.
-    method: str = "single_shot"
+    #: All are kept because comparing them on one document is how the difference gets shown
+    #: rather than asserted, and the comparison is what chose the default.
+    #:
+    #: Default: cluster_first where the discovery extra is installed, else staged. Measured over
+    #: three runs each on one document, it was the only route whose concept set was reproducible
+    #: — 34, 34, 34, where staged returned 40, 41 and 204 — because its concepts come from
+    #: clustering the document's own noun phrases rather than from the model. Reproducibility is
+    #: the property being sold: an ontology someone reviewed and published should rebuild to the
+    #: same ontology. It costs about fifty seconds against eight, and it proposes perhaps ten
+    #: concepts that are the document's rhetoric rather than its domain — which a reviewer
+    #: removes in minutes, where 204 concepts and 438 review items are not reviewed at all.
+    method: str | None = None
     #: Submit the work and collect it later. An extraction takes minutes — that is the model's
     #: speed — and holding an HTTP connection open for it means clients time out, proxies close
     #: the socket, and an interrupted caller loses work that was nearly finished. With this set,
@@ -314,7 +323,7 @@ def create_app(world: World | None = None) -> FastAPI:
             job = app.state.jobs.submit(
                 "build-kb",
                 lambda: build_kb_endpoint(inline),
-                label=f"{req.method}, {sum(len(t) for t in req.texts)} chars",
+                label=f"{req.method or 'default'}, {sum(len(t) for t in req.texts)} chars",
             )
             return job.as_dict()
 
@@ -331,10 +340,14 @@ def create_app(world: World | None = None) -> FastAPI:
 
         from loka_ontology import PARADIGMS
 
+        # Resolved once, here, so the recorded provenance names the paradigm that ran rather
+        # than "whatever the default was on that deployment".
+        method = req.method or ("cluster_first" if "cluster_first" in PARADIGMS else "staged")
+
         # Checked before anything else, not inside the model branch: with no model configured a
         # misspelt method used to be accepted silently and answered by the rule-based builder,
         # so a caller comparing paradigms could collect a row for one that never ran.
-        if req.method != "single_shot" and req.method not in PARADIGMS:
+        if method != "single_shot" and method not in PARADIGMS:
             known = ", ".join(["single_shot", *sorted(PARADIGMS)])
             raise HTTPException(
                 status_code=400,
@@ -350,8 +363,8 @@ def create_app(world: World | None = None) -> FastAPI:
 
                 client, model = llm_for("ontology_build"), model_for("ontology_build")
                 llm_builder: Any
-                if req.method in PARADIGMS:
-                    llm_builder = PARADIGMS[req.method](client=client, model=model)
+                if method in PARADIGMS:
+                    llm_builder = PARADIGMS[method](client=client, model=model)
                 else:
                     llm_builder = LLMBuilder(
                         client=client, model=model, system_prompt=req.system_prompt
@@ -361,8 +374,9 @@ def create_app(world: World | None = None) -> FastAPI:
                 # Read back from the builder rather than restated here: a second copy of a
                 # prompt is a copy that eventually stops matching the one that ran.
                 provenance = {
-                    "method": _EXTRACTION_METHODS.get(req.method, req.method),
-                    "extraction": req.method,
+                    "method": _EXTRACTION_METHODS.get(method, method),
+                    "extraction": method,
+                    "extraction_chosen_by": "caller" if req.method else "default",
                     "model": llm_builder.model,
                     "prompt": llm_builder.system_prompt,
                     "prompt_source": "caller" if req.system_prompt else "default",

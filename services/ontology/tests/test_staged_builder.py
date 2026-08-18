@@ -98,8 +98,9 @@ def test_attributes_are_asked_in_batches() -> None:
     many = {"entities": [
         {"name": f"T{i}", "subtype_of": None, "evidence": "sellers"} for i in range(40)
     ]}
-    replies = dict(_GOOD, **{"List the entity types": many})
-    _, builder = _build(replies)
+    client = _Scripted(dict(_GOOD, **{"List the entity types": many}))
+    builder = StagedLLMBuilder(client=client, model="test")
+    builder.propose([_TEXT * 12])
     attribute_calls = [c for c in builder.stage_calls if c["stage"].startswith("attributes")]
     assert len(attribute_calls) > 1
 
@@ -410,7 +411,7 @@ def test_independent_calls_are_issued_concurrently() -> None:
             )
 
     client = _Slow()
-    StagedLLMBuilder(client=client, model="test").propose([_TEXT])
+    StagedLLMBuilder(client=client, model="test").propose([_TEXT * 12])
     assert client.peak > 1, "attribute batches were issued one at a time"
 
 
@@ -445,7 +446,7 @@ def test_one_failed_batch_does_not_discard_the_others() -> None:
 
     client = _FlakyBatch()
     builder = StagedLLMBuilder(client=client, model="test")
-    draft = builder.propose([_TEXT])
+    draft = builder.propose([_TEXT * 12])   # long enough that 36 types is plausible
     assert len(draft.entities) == 36           # the run completed
     assert builder.notes["failed_stages"]      # and said which batch did not
     # three batches, and the one that returned unreadable JSON was asked twice more
@@ -501,3 +502,27 @@ def test_a_stage_that_never_returns_readable_json_still_fails() -> None:
     with pytest.raises(OntologyBuildError):
         StagedLLMBuilder(client=client, model="test").propose([_TEXT])
     assert client.attempts == 3  # the original and two retries, then it stops
+
+
+def test_a_reply_proposing_a_concept_per_clause_is_refused() -> None:
+    """One run over a 4,807-character document returned 204 entity types — a new concept every
+    23 characters. It cascaded: seventeen attribute batches and a review list of 438 items, and a
+    list that long is not reviewed by anyone. The same document returned 6, 8, 40 and 41 on other
+    runs, so this refuses the collapse and not the spread."""
+    source = "word " * 1000  # 5,000 characters
+    flood = {"entities": [
+        {"name": f"T{i}", "subtype_of": None, "evidence": "word"} for i in range(204)
+    ]}
+    client = _Scripted(dict(_GOOD, **{"List the entity types": flood}))
+    builder = StagedLLMBuilder(client=client, model="test")
+    with pytest.raises(OntologyBuildError, match="one per clause"):
+        builder.propose([source])
+    assert builder.notes["degenerate_entity_replies"] == [204, 204, 204]
+
+
+def test_a_dense_small_domain_is_not_refused() -> None:
+    """A short document with a handful of concepts is never the failure this guards against, and
+    a ratio applied without a floor would reject it."""
+    client = _Scripted(_GOOD)   # six types for a few hundred characters
+    draft = StagedLLMBuilder(client=client, model="test").propose([_TEXT])
+    assert len(draft.entities) == 6

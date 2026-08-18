@@ -60,6 +60,18 @@ from .builder import (
 #: headroom nobody was using for calls that were the actual cost.
 _ATTR_BATCH = 12
 
+#: Characters of source text per entity type, below which the reply is treated as degenerate.
+#:
+#: One run over a 4,807-character document returned 204 entity types — a new concept every 23
+#: characters, which is a model writing one per clause rather than reading a domain. It cascaded:
+#: 204 types became seventeen attribute batches and a review list of 438 items, and a review list
+#: that long is not reviewed. Runs over the same document returned 6, 8, 40 and 41, so a floor of
+#: one per 100 characters admits every plausible answer and refuses only the collapse.
+_MIN_CHARS_PER_ENTITY = 100
+
+#: Below this many entity types, no ratio applies: a small domain is allowed to be dense.
+_ALWAYS_PLAUSIBLE_ENTITIES = 20
+
 #: Extra attempts when a reply is not readable JSON.
 #:
 #: Not a token problem and not fixed by a larger budget: a reply that ends in a balanced brace
@@ -311,12 +323,29 @@ class _StagedBuilder:
     # ---- shared stages ----
 
     def _entities(self, source: str) -> list[EntityDraft]:
-        obj = self._ask("entities", self.ENTITIES, source)
+        # A short document with a handful of concepts is never the failure this guards against,
+        # so the ratio only starts to bite once there are more concepts than any small domain
+        # plausibly has.
+        limit = max(_ALWAYS_PLAUSIBLE_ENTITIES, len(source) // _MIN_CHARS_PER_ENTITY)
+        for attempt in range(1 + _JSON_RETRIES):
+            obj = self._ask("entities", self.ENTITIES, source)
+            proposed = [e for e in obj.get("entities", []) if isinstance(e, dict) and e.get("name")]
+            if len(proposed) <= limit:
+                break
+            # Asking again rather than truncating: a list this long is not a good answer with a
+            # tail to cut off, it is a different kind of answer, and the first N of it are no
+            # more trustworthy than the rest.
+            self.notes.setdefault("degenerate_entity_replies", []).append(len(proposed))
+            if attempt == _JSON_RETRIES:
+                raise OntologyBuildError(
+                    f"the entities stage proposed {len(proposed)} types for a "
+                    f"{len(source)}-character document, over the limit of {limit}, on every "
+                    f"attempt; a concept every {len(source) // max(len(proposed), 1)} characters "
+                    "is a model writing one per clause rather than reading a domain"
+                )
         out: list[EntityDraft] = []
         seen: set[str] = set()
-        for e in obj.get("entities", []):
-            if not isinstance(e, dict):
-                continue
+        for e in proposed:
             name = str(e.get("name") or "").strip()
             if not name or name in seen:
                 continue
