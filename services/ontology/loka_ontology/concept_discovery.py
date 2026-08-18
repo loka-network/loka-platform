@@ -271,18 +271,24 @@ class ClusterNamer:
         self.calls: list[dict[str, Any]] = []
 
     def _ask(self, stage: str, system: str, user: str) -> dict[str, Any]:
+        import time  # noqa: PLC0415 - kept next to its single use
+
         from .staged_builder import _json_object  # noqa: PLC0415 - avoids a cycle at import
 
+        started = time.monotonic()
         resp = self._client.messages.create(
             model=self._model,
             max_tokens=self._max_tokens,
             system=system,
             messages=[{"role": "user", "content": user}],
         )
+        elapsed = time.monotonic() - started
         text = "".join(
             getattr(b, "text", "") for b in resp.content if getattr(b, "type", "") == "text"
         )
-        self.calls.append({"stage": stage, "reply_chars": len(text)})
+        self.calls.append(
+            {"stage": stage, "reply_chars": len(text), "seconds": round(elapsed, 1)}
+        )
         return _json_object(text, stage)
 
     def name(self, clusters: Sequence[Sequence[str]], counts: Counter[str]) -> list[Concept]:

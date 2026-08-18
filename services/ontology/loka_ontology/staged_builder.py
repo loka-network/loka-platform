@@ -34,20 +34,31 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
 from .builder import _BASE_TYPE, _VERB_CLASS, EntityDraft, OntologyBuildError, OntologyDraft
 
-#: Entities per call in the attribute stage. Small enough that a batch's answer cannot exhaust
-#: the budget, large enough that a twenty-type ontology is not twenty round trips.
-_ATTR_BATCH = 6
+#: Entities per call in the attribute stage.
+#:
+#: Sized from a measurement rather than caution. On a 4.8k-character document the longest reply
+#: any stage produced was 6,212 characters — roughly 1,550 tokens against a 32,000 ceiling, so
+#: twenty times the headroom. At six per batch a twenty-type ontology cost four attribute calls,
+#: and at ~200s per call with a reasoning model those four are most of the wall clock: the
+#: paradigms that add stages on top of them timed out at thirty minutes. Batching wider trades
+#: headroom nobody was using for calls that were the actual cost.
+_ATTR_BATCH = 12
 
 #: Target size of a fragment in the instance stage. The paper notes the extraction "performs
 #: this task more effectively in short text fragments"; paragraph boundaries are used so a
 #: fragment is a unit of meaning rather than a fixed number of characters.
-_FRAGMENT_CHARS = 900
+#:
+#: Raised from 900 for the same reason as the attribute batch: at 900 our document became seven
+#: fragments, seven calls, and the paradigm did not finish inside half an hour. "Short" here is
+#: relative to a whole document, and 1,800 characters is still one or two sections.
+_FRAGMENT_CHARS = 1800
 
 _WORD = re.compile(r"[a-z0-9]+")
 
@@ -200,18 +211,24 @@ class _StagedBuilder:
         return "\n\n---\n\n".join(f"[{name}] {p}" for name, p in self._prompts())
 
     def _ask(self, stage: str, system: str, user: str) -> dict[str, Any]:
+        # Timed per stage. Wall clock is what decides whether a paradigm is usable at all — two
+        # of them could not finish inside half an hour — and a total tells you that without
+        # telling you which stage to shorten.
+        started = time.monotonic()
         resp = self._client.messages.create(
             model=self._model,
             max_tokens=self._max_tokens,
             system=system,
             messages=[{"role": "user", "content": user}],
         )
+        elapsed = time.monotonic() - started
         text = "".join(
             getattr(b, "text", "") for b in resp.content if getattr(b, "type", "") == "text"
         )
-        obj = _json_object(text, stage)
-        self.stage_calls.append({"stage": stage, "reply_chars": len(text)})
-        return obj
+        self.stage_calls.append(
+            {"stage": stage, "reply_chars": len(text), "seconds": round(elapsed, 1)}
+        )
+        return _json_object(text, stage)
 
     # ---- shared stages ----
 

@@ -89,6 +89,10 @@ def _summarise(method: str, status: int, body: Any, seconds: float) -> dict[str,
         # The longest single reply is the number that decides whether a bigger domain would have
         # been truncated. It is the reason to decompose at all.
         "longest_reply": max((c.get("reply_chars", 0) for c in calls), default=None),
+        # Where the wall clock went. A total says a paradigm is too slow; this says which stage.
+        "slowest_stage": (
+            max(calls, key=lambda c: c.get("seconds", 0)).get("stage") if calls else None
+        ),
         "grounded": grounding.get("grounded"),
         "checked": grounding.get("checked"),
         "grounding_rate": grounding.get("rate"),
@@ -106,7 +110,7 @@ def main() -> None:
     ap.add_argument("--text", default=os.path.join(here, "supply_domain.md"))
     # A staged paradigm is several model calls, and a reasoning model spends minutes per call,
     # so the whole extraction can take far longer than a single-reply one.
-    ap.add_argument("--timeout", type=float, default=1800.0)
+    ap.add_argument("--timeout", type=float, default=3600.0)
     ap.add_argument("--json", dest="out", help="write the full responses here")
     ap.add_argument("--methods", nargs="*", default=list(METHODS))
     args = ap.parse_args()
@@ -173,6 +177,8 @@ def main() -> None:
         if row.get("ungrounded"):
             print(f"\n{row['method']}: proposed but not found in the document — "
                   f"{', '.join(row['ungrounded'])}")
+        if row.get("slowest_stage"):
+            print(f"{row['method']}: slowest stage = {row['slowest_stage']}")
         for key, value in (row.get("notes") or {}).items():
             print(f"{row['method']}: {key} = {value}")
 

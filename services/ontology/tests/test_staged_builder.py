@@ -96,7 +96,7 @@ def test_each_stage_is_a_separate_call() -> None:
 def test_attributes_are_asked_in_batches() -> None:
     """Twenty entity types in one attribute call recreates the problem decomposition solves."""
     many = {"entities": [
-        {"name": f"T{i}", "subtype_of": None, "evidence": "sellers"} for i in range(20)
+        {"name": f"T{i}", "subtype_of": None, "evidence": "sellers"} for i in range(40)
     ]}
     replies = dict(_GOOD, **{"List the entity types": many})
     _, builder = _build(replies)
@@ -355,7 +355,7 @@ def test_a_triple_whose_ends_cannot_be_typed_is_recorded_not_dropped() -> None:
 def test_extraction_runs_per_fragment() -> None:
     """Short fragments are where the paper reports this works, and they also keep each reply
     small — the same reason the task was split at all."""
-    long_text = "\n\n".join([_TEXT] * 4)
+    long_text = "\n\n".join([_TEXT] * 8)  # comfortably past _FRAGMENT_CHARS
     builder = HeadTailBuilder(client=_Scripted(_HT_REPLIES), model="test")
     builder.propose([long_text])
     fragment_calls = [c for c in builder.stage_calls if c["stage"].startswith("instance triples")]
