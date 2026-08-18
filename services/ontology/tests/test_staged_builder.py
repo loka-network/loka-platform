@@ -369,3 +369,83 @@ def test_no_instances_is_an_error_rather_than_an_empty_result() -> None:
     none = dict(_HT_REPLIES, **{"Find the concrete things": {"mentions": []}})
     with pytest.raises(OntologyBuildError, match="nothing in the text to map"):
         _build_ht(none)
+
+
+# ---- independent calls run together ----
+
+def test_independent_calls_are_issued_concurrently() -> None:
+    """Attribute batches do not depend on each other, and neither do fragments. Issued one at a
+    time their wall clock is the sum; issued together it is the slowest. On a reasoning model at
+    ~200s per call that difference decided whether a paradigm finished at all."""
+    import threading
+    import time
+
+    class _Slow:
+        def __init__(self) -> None:
+            self.in_flight = 0
+            self.peak = 0
+            self._lock = threading.Lock()
+            self.messages = SimpleNamespace(create=self._create)
+
+        def _create(self, *, system: str, **kw: Any) -> Any:
+            with self._lock:
+                self.in_flight += 1
+                self.peak = max(self.peak, self.in_flight)
+            time.sleep(0.05)
+            with self._lock:
+                self.in_flight -= 1
+            if "List the entity types" in system:
+                reply: dict[str, Any] = {"entities": [
+                    {"name": f"T{i}", "subtype_of": None, "evidence": "sellers"}
+                    for i in range(36)
+                ]}
+            elif "give the attributes" in system:
+                reply = {"attributes": {}}
+            elif "extract the relations" in system:
+                reply = {"relations": []}
+            else:
+                reply = {"verbs": []}
+            return SimpleNamespace(
+                content=[SimpleNamespace(type="text", text=json.dumps(reply))]
+            )
+
+    client = _Slow()
+    StagedLLMBuilder(client=client, model="test").propose([_TEXT])
+    assert client.peak > 1, "attribute batches were issued one at a time"
+
+
+def test_one_failed_batch_does_not_discard_the_others() -> None:
+    """A stage that failed on batch three still has one and two. Throwing them away costs a
+    round trip each to learn nothing, and the failure is reported instead."""
+    class _FlakyBatch:
+        def __init__(self) -> None:
+            self.attribute_calls = 0
+            self.messages = SimpleNamespace(create=self._create)
+
+        def _create(self, *, system: str, **kw: Any) -> Any:
+            if "give the attributes" in system:
+                self.attribute_calls += 1
+                if self.attribute_calls == 1:
+                    return SimpleNamespace(
+                        content=[SimpleNamespace(type="text", text="not json at all")]
+                    )
+                reply: dict[str, Any] = {"attributes": {}}
+            elif "List the entity types" in system:
+                reply = {"entities": [
+                    {"name": f"T{i}", "subtype_of": None, "evidence": "sellers"}
+                    for i in range(36)
+                ]}
+            elif "extract the relations" in system:
+                reply = {"relations": []}
+            else:
+                reply = {"verbs": []}
+            return SimpleNamespace(
+                content=[SimpleNamespace(type="text", text=json.dumps(reply))]
+            )
+
+    client = _FlakyBatch()
+    builder = StagedLLMBuilder(client=client, model="test")
+    draft = builder.propose([_TEXT])
+    assert len(draft.entities) == 36           # the run completed
+    assert builder.notes["failed_stages"]      # and said which batch did not
+    assert client.attribute_calls == 3

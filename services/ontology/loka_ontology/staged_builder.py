@@ -36,6 +36,7 @@ import json
 import re
 import time
 from collections.abc import Sequence
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -50,6 +51,13 @@ from .builder import _BASE_TYPE, _VERB_CLASS, EntityDraft, OntologyBuildError, O
 #: paradigms that add stages on top of them timed out at thirty minutes. Batching wider trades
 #: headroom nobody was using for calls that were the actual cost.
 _ATTR_BATCH = 12
+
+#: Independent calls run at once, up to this many. Attribute batches do not depend on each
+#: other and neither do fragments, yet they were issued one at a time — so a paradigm's wall
+#: clock was the sum of calls that could all have been in flight together. These are HTTP
+#: requests waiting on a model, so threads are the right tool and the bound exists to stay
+#: polite to the endpoint rather than to protect anything here.
+_MAX_CONCURRENCY = 4
 
 #: Target size of a fragment in the instance stage. The paper notes the extraction "performs
 #: this task more effectively in short text fragments"; paragraph boundaries are used so a
@@ -210,6 +218,31 @@ class _StagedBuilder:
         """Every instruction this builder sends, in order. What ran, for the record."""
         return "\n\n---\n\n".join(f"[{name}] {p}" for name, p in self._prompts())
 
+    def _ask_many(
+        self, jobs: Sequence[tuple[str, str, str]]
+    ) -> list[dict[str, Any] | Exception]:
+        """Issue independent calls together, keeping the order of ``jobs``.
+
+        An exception is returned rather than raised so one bad batch does not discard the others:
+        a stage that failed on batch three still has one and two, and dropping them would cost a
+        round trip each to learn nothing new.
+        """
+        if len(jobs) == 1:
+            try:
+                return [self._ask(*jobs[0])]
+            except Exception as exc:  # noqa: BLE001 - handed back to the caller to decide
+                return [exc]
+        out: list[dict[str, Any] | Exception] = [ValueError("not run")] * len(jobs)
+        with ThreadPoolExecutor(max_workers=min(_MAX_CONCURRENCY, len(jobs))) as pool:
+            futures = {pool.submit(self._ask, *job): i for i, job in enumerate(jobs)}
+            for future in as_completed(futures):
+                index = futures[future]
+                try:
+                    out[index] = future.result()
+                except Exception as exc:  # noqa: BLE001 - see above
+                    out[index] = exc
+        return out
+
     def _ask(self, stage: str, system: str, user: str) -> dict[str, Any]:
         # Timed per stage. Wall clock is what decides whether a paradigm is usable at all — two
         # of them could not finish inside half an hour — and a total tells you that without
@@ -257,14 +290,21 @@ class _StagedBuilder:
         self, source: str, entities: list[EntityDraft]
     ) -> dict[str, tuple[tuple[str, str], ...]]:
         found: dict[str, tuple[tuple[str, str], ...]] = {}
-        for i in range(0, len(entities), _ATTR_BATCH):
-            batch = entities[i : i + _ATTR_BATCH]
-            names = ", ".join(e.name for e in batch)
-            obj = self._ask(
-                f"attributes[{i // _ATTR_BATCH}]",
+        batches = [entities[i : i + _ATTR_BATCH] for i in range(0, len(entities), _ATTR_BATCH)]
+        replies = self._ask_many([
+            (
+                f"attributes[{i}]",
                 self.ATTRIBUTES,
-                f"Entity types: {names}\n\nText:\n{source}",
+                f"Entity types: {', '.join(e.name for e in batch)}\n\nText:\n{source}",
             )
+            for i, batch in enumerate(batches)
+        ])
+        for batch, obj in zip(batches, replies, strict=True):
+            if isinstance(obj, Exception):
+                # Attributes are optional in a draft; a batch that failed leaves its types
+                # without any, which the review checklist already knows how to report.
+                self.notes.setdefault("failed_stages", []).append(f"attributes: {obj}")
+                continue
             in_batch = {e.name for e in batch}
             for entity, attrs in (obj.get("attributes") or {}).items():
                 if entity not in in_batch or not isinstance(attrs, list):
@@ -570,8 +610,14 @@ class HeadTailBuilder(_StagedBuilder):
         unmapped: list[str] = []
         fragments = _fragments(source)
         self.notes["fragments"] = len(fragments)
-        for i, fragment in enumerate(fragments):
-            obj = self._ask(f"instance triples[{i}]", self.INSTANCE_TRIPLES, fragment)
+        replies = self._ask_many([
+            (f"instance triples[{i}]", self.INSTANCE_TRIPLES, fragment)
+            for i, fragment in enumerate(fragments)
+        ])
+        for obj in replies:
+            if isinstance(obj, Exception):
+                self.notes.setdefault("failed_stages", []).append(f"instance triples: {obj}")
+                continue
             for t in obj.get("triples", []):
                 if not isinstance(t, dict):
                     continue
