@@ -108,7 +108,15 @@ class _OpenAICompatMessages:
                 budget = min(budget * 2, ceiling)
                 continue
             if text.strip() and finish != "length":
-                return SimpleNamespace(content=[SimpleNamespace(type="text", text=text)])
+                # What it actually cost, carried back with the answer. A caller that only sees
+                # "one call" cannot tell a reply that arrived first time from one that took four
+                # requests at doubling budgets — and since the budget also changes how much the
+                # model writes, two runs recorded as one call each are not comparable.
+                return SimpleNamespace(
+                    content=[SimpleNamespace(type="text", text=text)],
+                    requests=attempts,
+                    budget=budget,
+                )
 
             reasoning = getattr(choice.message, "reasoning_content", None)
             where = f"budget={budget}, ceiling={ceiling}"

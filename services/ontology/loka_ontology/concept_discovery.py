@@ -269,8 +269,10 @@ class ClusterNamer:
         "same part of the domain. A seller and a shopper both appear in every sale and are not "
         "the same concept. A parcel and the purchase it belongs to are not the same concept. "
         "If in doubt, do not group.\n"
+        "Every name below is distinct: never pair a name with itself.\n"
         'Reply with ONLY JSON: {"same": [[<name>, <name>], ...]}. An empty list is the expected '
-        "answer for most documents. No prose, no code fences."
+        "answer for most documents, and is the right answer when you are unsure. "
+        "No prose, no code fences."
     )
 
     def __init__(
@@ -307,9 +309,13 @@ class ClusterNamer:
         text = "".join(
             getattr(b, "text", "") for b in resp.content if getattr(b, "type", "") == "text"
         )
-        self.calls.append(
-            {"stage": stage, "reply_chars": len(text), "seconds": round(elapsed, 1)}
-        )
+        self.calls.append({
+            "stage": stage,
+            "reply_chars": len(text),
+            "seconds": round(elapsed, 1),
+            "requests": getattr(resp, "requests", 1),
+            "budget": getattr(resp, "budget", None),
+        })
         return _json_object(text, stage)
 
     def name(self, clusters: Sequence[Sequence[str]], counts: Counter[str]) -> list[Concept]:
@@ -355,6 +361,11 @@ class ClusterNamer:
         share = {c.name: c.occurrences for c in concepts}
         for group in obj.get("same", []) or []:
             names = [str(n) for n in group if str(n) in by_name] if isinstance(group, list) else []
+            # Asked which concepts are the same, the model returned every concept paired with
+            # itself — thirty-four groups of the form [X, X]. The size rule happened to refuse
+            # them all, since a thing is exactly as large as itself, but being right by accident
+            # is not being right. Duplicates within a group are dropped before anything else.
+            names = list(dict.fromkeys(names))
             if len(names) < 2:
                 continue
             weights = [share[n] for n in names]

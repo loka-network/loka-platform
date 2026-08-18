@@ -104,6 +104,11 @@ def _summarise(method: str, status: int, body: Any, seconds: float) -> dict[str,
         "relations": yaml_text.count("\n  - {name: ") - yaml_text.count("class:"),
         "verbs": yaml_text.count("class:"),
         "calls": len(calls) or 1,
+        # A logical stage can be several HTTP requests at doubling budgets, and since the budget
+        # also changes how much the model writes, two runs recorded as one call each need not be
+        # comparable. This is what was actually sent.
+        "requests": sum(c.get("requests", 1) for c in calls) or 1,
+        "budgets": sorted({c.get("budget") for c in calls if c.get("budget")}),
         # The longest single reply is the number that decides whether a bigger domain would have
         # been truncated. It is the reason to decompose at all.
         "longest_reply": max((c.get("reply_chars", 0) for c in calls), default=None),
@@ -215,11 +220,12 @@ def main() -> None:
         return "-" if value is None else str(value)
 
     print()
-    header = ("method", "ok", "secs", "ents", "rels", "verbs", "calls", "longest",
+    header = ("method", "ok", "secs", "ents", "rels", "verbs", "calls", "reqs", "longest",
               "grounded", "review")
     print(f"{header[0]:<15}{header[1]:<5}{header[2]:>7}{header[3]:>6}{header[4]:>6}"
-          f"{header[5]:>7}{header[6]:>7}{header[7]:>9}{header[8]:>10}{header[9]:>8}")
-    print("-" * 80)
+          f"{header[5]:>7}{header[6]:>7}{header[7]:>6}{header[8]:>9}{header[9]:>10}"
+          f"{header[10]:>8}")
+    print("-" * 86)
     for row in rows:
         grounded = (
             f"{row['grounded']}/{row['checked']}"
@@ -228,7 +234,8 @@ def main() -> None:
         print(
             f"{row['method']:<15}{'y' if row['ok'] else 'n':<5}{cell(row, 'seconds'):>7}"
             f"{cell(row, 'entities'):>6}{cell(row, 'relations'):>6}{cell(row, 'verbs'):>7}"
-            f"{cell(row, 'calls'):>7}{cell(row, 'longest_reply'):>9}{grounded:>10}"
+            f"{cell(row, 'calls'):>7}{cell(row, 'requests'):>6}"
+            f"{cell(row, 'longest_reply'):>9}{grounded:>10}"
             f"{cell(row, 'review_items'):>8}"
         )
     for row in rows:
@@ -255,6 +262,8 @@ def main() -> None:
         if row.get("ungrounded"):
             print(f"\n{row['method']}: proposed but not found in the document — "
                   f"{', '.join(row['ungrounded'])}")
+        if row.get("budgets") and len(row["budgets"]) > 1:
+            print(f"{row['method']}: budgets escalated across stages = {row['budgets']}")
         if row.get("slowest_stage"):
             print(f"{row['method']}: slowest stage = {row['slowest_stage']}")
         for key, value in (row.get("notes") or {}).items():

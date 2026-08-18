@@ -202,3 +202,37 @@ def test_no_temperature_is_sent_when_none_is_asked_for() -> None:
     rec = _Rec("ok")
     OpenAICompatClient(client=rec).messages.create(model="m", max_tokens=1000, messages=[])
     assert "temperature" not in rec.seen
+
+
+def test_the_reply_carries_what_it_actually_cost(monkeypatch: pytest.MonkeyPatch) -> None:
+    """One logical call can be several HTTP requests at doubling budgets. A caller that only
+    counts calls cannot tell a reply that arrived first time from one that took four — and since
+    the budget also changes how much the model writes, two runs recorded as one call each are
+    not necessarily comparable."""
+    monkeypatch.setenv("LOKA_LLM_MIN_MAX_TOKENS", "1000")
+
+    class _TruncatesOnce:
+        def __init__(self) -> None:
+            self.n = 0
+            self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
+
+        def _create(self, **kw: object) -> object:
+            self.n += 1
+            first = self.n == 1
+            msg = SimpleNamespace(content="" if first else "ok")
+            return SimpleNamespace(choices=[
+                SimpleNamespace(message=msg, finish_reason="length" if first else "stop")
+            ])
+
+    resp = OpenAICompatClient(client=_TruncatesOnce()).messages.create(
+        model="m", max_tokens=1000, messages=[]
+    )
+    assert resp.requests == 2      # not one
+    assert resp.budget == 2000     # and at twice the budget the first attempt used
+
+
+def test_a_first_time_reply_reports_one_request() -> None:
+    resp = OpenAICompatClient(client=_Rec("ok")).messages.create(
+        model="m", max_tokens=1000, messages=[]
+    )
+    assert resp.requests == 1

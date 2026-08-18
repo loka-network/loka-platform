@@ -185,3 +185,16 @@ def test_two_concepts_of_comparable_weight_are_not_merged() -> None:
     assert {c.name for c in kept} == {"Marketplace", "Seller"}
     assert merged == []
     assert namer.refused_merges == [("Marketplace", "Seller")]  # declined, and said so
+
+
+def test_a_concept_paired_with_itself_is_not_a_merge() -> None:
+    """Asked which concepts are the same, the model returned every concept paired with itself —
+    thirty-four groups of the form [X, X]. The size rule refused them all, since a thing is
+    exactly as large as itself, but being right by accident is not being right."""
+    namer = ClusterNamer(client=_Namer(merge=[["Seller", "Seller"]]), model="test")
+    seller = Concept(name="Seller", terms=("seller",), occurrences=30, evidence="seller")
+    other = Concept(name="Parcel", terms=("parcel",), occurrences=8, evidence="parcel")
+    kept, merged = namer.merge([seller, other])
+    assert {c.name for c in kept} == {"Seller", "Parcel"}
+    assert merged == []
+    assert namer.refused_merges == []  # nothing was refused: there was nothing to refuse

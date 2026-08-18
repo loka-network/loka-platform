@@ -282,7 +282,13 @@ class _StagedBuilder:
                 getattr(b, "text", "") for b in resp.content if getattr(b, "type", "") == "text"
             )
             record: dict[str, Any] = {
-                "stage": stage, "reply_chars": len(text), "seconds": round(elapsed, 1)
+                "stage": stage,
+                "reply_chars": len(text),
+                "seconds": round(elapsed, 1),
+                # From the client, which is the only place that knows: one logical call can be
+                # several HTTP requests at doubling budgets.
+                "requests": getattr(resp, "requests", 1),
+                "budget": getattr(resp, "budget", None),
             }
             try:
                 obj = _json_object(text, stage)
