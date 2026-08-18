@@ -74,6 +74,7 @@ class _OpenAICompatMessages:
         max_tokens: int,
         messages: list[dict[str, Any]],
         system: str | None = None,
+        temperature: float | None = None,
         **_: Any,
     ) -> Any:
         msgs = ([{"role": "system", "content": system}] if system else []) + list(messages)
@@ -90,8 +91,9 @@ class _OpenAICompatMessages:
         attempts = 0
         while True:
             attempts += 1
+            extra = {} if temperature is None else {"temperature": temperature}
             resp = self._client.chat.completions.create(
-                model=model, max_tokens=budget, messages=msgs
+                model=model, max_tokens=budget, messages=msgs, **extra
             )
             choice = resp.choices[0]
             text = choice.message.content or ""

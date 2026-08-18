@@ -182,3 +182,23 @@ def test_an_empty_answer_that_was_not_truncated_is_not_retried(
     with pytest.raises(EmptyCompletionError, match="finish_reason=stop"):
         OpenAICompatClient(client=rec).messages.create(model="m", max_tokens=1000, messages=[])
     assert rec.calls == 1
+
+
+def test_the_sampling_temperature_is_passed_through() -> None:
+    """Left unset, an endpoint samples at its own default and every run draws again: the same
+    paradigm over the same document returned forty entity types once and nine the next time.
+    Every comparison run before this was a single sample of a wide distribution read as a
+    measurement."""
+    rec = _Rec("ok")
+    OpenAICompatClient(client=rec).messages.create(
+        model="m", max_tokens=1000, messages=[], temperature=0.0
+    )
+    assert rec.seen["temperature"] == 0.0
+
+
+def test_no_temperature_is_sent_when_none_is_asked_for() -> None:
+    """Not every caller wants it pinned, and sending a default we invented would override an
+    endpoint's own — silently, and differently per provider."""
+    rec = _Rec("ok")
+    OpenAICompatClient(client=rec).messages.create(model="m", max_tokens=1000, messages=[])
+    assert "temperature" not in rec.seen

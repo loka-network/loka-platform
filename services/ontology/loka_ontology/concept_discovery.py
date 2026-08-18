@@ -292,12 +292,14 @@ class ClusterNamer:
     def _ask(self, stage: str, system: str, user: str) -> dict[str, Any]:
         import time  # noqa: PLC0415 - kept next to its single use
 
+        from .builder import EXTRACTION_TEMPERATURE  # noqa: PLC0415 - avoids a cycle
         from .staged_builder import _json_object  # noqa: PLC0415 - avoids a cycle at import
 
         started = time.monotonic()
         resp = self._client.messages.create(
             model=self._model,
             max_tokens=self._max_tokens,
+            temperature=EXTRACTION_TEMPERATURE,
             system=system,
             messages=[{"role": "user", "content": user}],
         )

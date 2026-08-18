@@ -62,6 +62,16 @@ _VERB_CLASS = {"factual", "communicative", "institutional"}
 #: most starved of them.
 EXTRACTION_MAX_TOKENS = 16000
 
+#: Sampling temperature for every extraction.
+#:
+#: Zero, because nothing here wants variety. Left unset, the endpoint samples at its own default
+#: and every run draws again: the same paradigm over the same document with the same prompt
+#: returned forty entity types once and nine the next time. Every comparison run before this was
+#: therefore a single sample of a wide distribution being read as a measurement, and the
+#: conclusions drawn from them do not hold. It also matters beyond experiments — a customer who
+#: reviews and publishes an ontology should be able to rebuild it and get the same one.
+EXTRACTION_TEMPERATURE = 0.0
+
 
 class OntologyBuildError(RuntimeError):
     """The model replied, but not with an ontology this can read. Carries what came back: a
@@ -196,6 +206,7 @@ class LLMBuilder:
         resp = self._client.messages.create(
             model=self._model,
             max_tokens=EXTRACTION_MAX_TOKENS,
+            temperature=EXTRACTION_TEMPERATURE,
             system=self._system,
             messages=[{"role": "user", "content": "\n".join(texts)}],
         )

@@ -44,6 +44,7 @@ from .builder import (
     _BASE_TYPE,
     _VERB_CLASS,
     EXTRACTION_MAX_TOKENS,
+    EXTRACTION_TEMPERATURE,
     EntityDraft,
     OntologyBuildError,
     OntologyDraft,
@@ -272,6 +273,7 @@ class _StagedBuilder:
             resp = self._client.messages.create(
                 model=self._model,
                 max_tokens=self._max_tokens,
+                temperature=EXTRACTION_TEMPERATURE,
                 system=system,
                 messages=[{"role": "user", "content": user}],
             )

@@ -131,6 +131,10 @@ def main() -> None:
     ap.add_argument("--timeout", type=float, default=3600.0)
     ap.add_argument("--json", dest="out", help="write the full responses here")
     ap.add_argument("--methods", nargs="*", default=list(METHODS))
+    # Two runs of one paradigm over one document returned forty entity types and nine. A single
+    # run is a sample, not a measurement, and reading it as one is how every comparison before
+    # this went wrong. Repeats are cheap now: the whole set takes well under a minute.
+    ap.add_argument("--repeat", type=int, default=1, help="runs per method, to see the spread")
     args = ap.parse_args()
 
     with open(args.text, encoding="utf-8") as f:
@@ -145,17 +149,19 @@ def main() -> None:
     full: dict[str, Any] = {}
     pending: dict[str, str] = {}
     for method in args.methods:
-        status, body = _post(
-            f"{args.url}/build-kb",
-            {"texts": [text], "method": method, "background": True},
-            60.0,
-        )
-        if status != 200 or not isinstance(body, dict) or not body.get("job_id"):
-            rows.append(_summarise(method, status, body, 0.0))
-            print(f"  {method}: could not submit — {body}")
-            continue
-        pending[method] = body["job_id"]
-        print(f"  {method}: submitted as {body['job_id']}")
+        for run in range(args.repeat):
+            tag = method if args.repeat == 1 else f"{method}#{run + 1}"
+            status, body = _post(
+                f"{args.url}/build-kb",
+                {"texts": [text], "method": method, "background": True},
+                60.0,
+            )
+            if status != 200 or not isinstance(body, dict) or not body.get("job_id"):
+                rows.append(_summarise(tag, status, body, 0.0))
+                print(f"  {tag}: could not submit — {body}")
+                continue
+            pending[tag] = body["job_id"]
+            print(f"  {tag}: submitted as {body['job_id']}")
 
     started = time.monotonic()
     print("\npolling (Ctrl-C is safe — finished results are already written)\n")
@@ -202,7 +208,7 @@ def main() -> None:
             "   comparison. Set LOKA_LLM_BUILD=1 and a model on the API and re-run."
         )
 
-    rows.sort(key=lambda r: args.methods.index(r["method"]))
+    rows.sort(key=lambda r: (args.methods.index(r["method"].split("#")[0]), r["method"]))
 
     def cell(row: dict[str, Any], key: str) -> str:
         value = row.get(key)
@@ -228,6 +234,22 @@ def main() -> None:
     for row in rows:
         if not row["ok"]:
             print(f"\n{row['method']}: {row['error']}")
+
+    if args.repeat > 1:
+        print("\nspread across runs (a single run is a sample, not a measurement):")
+        for method in args.methods:
+            got = [r for r in rows if r["method"].split("#")[0] == method and r["ok"]]
+            if not got:
+                print(f"  {method:<15} no successful run")
+                continue
+            ents = [r["entities"] for r in got]
+            rels = [r["relations"] for r in got]
+            print(
+                f"  {method:<15} entities {min(ents)}-{max(ents)} "
+                f"(mean {sum(ents) / len(ents):.1f})   "
+                f"relations {min(rels)}-{max(rels)} (mean {sum(rels) / len(rels):.1f})   "
+                f"{len(got)}/{args.repeat} runs ok"
+            )
 
     for row in rows:
         if row.get("ungrounded"):
