@@ -1,4 +1,4 @@
-"""Ontology meta-schema — Ω = (E, V, R, ⪯, CΩ).
+"""Ontology meta-schema — Ω = (E, V, R, ⪯, C, A, N).
 
 This is the core: it defines *how any ontology is represented*, independent of domain.
 The structures here are the empty machinery; concrete domain entities/relations (the
@@ -103,12 +103,13 @@ class Relation:
 
 @dataclass(frozen=True)
 class TypingConstraint:
-    """One typing constraint in CΩ (simplified form).
+    """One member of C: which agent and target types a verb may be used with.
 
-    Constrains the agent/target types allowed for a verb.
     e.g. REGULATE requires agent ⪯ Regulator and target ⪯ Instrument ∨ ⪯ PolicyLever.
-    Note: this declarative form is the starting point; the full CΩ (~250 rules) will be
-    implemented with Soufflé/Datalog later.
+
+    C is part of Ω and constrains what may be *done*. It is distinct from CΩ, the load-time
+    rules that decide whether an Ω is admissible at all — those live in the loader. One is
+    inside the object; the other judges it.
     """
 
     verb: str
@@ -172,7 +173,12 @@ class Norm:
 
 @dataclass
 class Ontology:
-    """A complete ontology Ω = (E, V, R, ⪯, CΩ, A, N).
+    """A complete ontology Ω = (E, V, R, ⪯, C, A, N).
+
+    C here is the typing-constraint set — which entity types may be agent and target of a verb.
+    It is not CΩ: that name belongs to the load-time rules *about* an Ω, which live in the
+    loader and decide whether an Ω is admissible at all. One is part of the object, the other
+    judges the object, and using one symbol for both made a sentence about either ambiguous.
 
     The subtype order ⪯ is encoded in each EntityType's ``subtype_of`` field. ``actions`` (A) is
     the action-type set — the 4th primitive — partitioned into Au ⊎ Ac by ``controllable``.
