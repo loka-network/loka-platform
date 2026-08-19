@@ -524,7 +524,7 @@ class RelationFirstBuilder(_StagedBuilder):
         "List the distinct kinds of relation this text asserts between things. Merge wordings "
         "that mean the same thing into one. Reply with ONLY JSON: "
         '{"relations": [{"verb": <lower_snake>, "means": <one short line>, '
-        '"evidence": <a phrase from the text using it>}]}. No prose, no code fences."'
+        '"evidence": <a phrase from the text using it>}]}. No prose, no code fences.'
     )
     RELATIONS = (
         "Extract the relations the text states between the given entity types, using ONLY the "
