@@ -26,11 +26,15 @@ entities:
   - type: Seller
     properties:
       - {name: seller_id, type: string, required: true}
+      - {name: on_time_rate, type: integer}
+      - {name: open_disputes, type: integer}
   - type: Customer
     properties:
       - {name: customer_id, type: string, required: true}
+  - type: Order
+    properties:
+      - {name: order_id, type: string, required: true}
       - {name: delay_days, type: integer}
-      - {name: open_disputes, type: integer}
       - {name: channel_open, type: integer}
       - {name: blackout, type: integer}
 verbs:
@@ -40,7 +44,8 @@ constraints:
   - {verb: NOTIFY_DELAY, agent_must_be: Seller, target_must_be: [Customer]}
   - {verb: SUSPEND_SELLER, agent_must_be: Seller, target_must_be: [Seller]}
 actions:
-  - {name: NotifyDelay, verb: NOTIFY_DELAY, target: Customer, guard: "delay_days >= 1"}
+  - {name: NotifyDelay, verb: NOTIFY_DELAY, target: Customer, complement: Order,
+     guard: "delay_days >= 1"}
   - {name: SuspendSeller, verb: SUSPEND_SELLER, target: Seller, guard: "on_time_rate < 100"}
 norms:
   - {name: LateOrdersMustBeDisclosed, action: NotifyDelay, status: mandatory,
@@ -170,9 +175,7 @@ def test_a_norm_on_an_uncontrollable_action_is_refused() -> None:
     """N(s, ac) is defined on the controllable half of A. Forbidding something nobody chose has
     no addressee."""
     bad = _ONTOLOGY.replace(
-        'actions:\n  - {name: NotifyDelay, verb: NOTIFY_DELAY, target: Customer, '
         'guard: "delay_days >= 1"}',
-        'actions:\n  - {name: NotifyDelay, verb: NOTIFY_DELAY, target: Customer, '
         'guard: "delay_days >= 1", controllable: false}',
     )
     with pytest.raises(OntologyLoadError, match="uncontrollable"):

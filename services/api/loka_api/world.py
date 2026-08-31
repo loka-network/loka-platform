@@ -61,7 +61,12 @@ entities:
     properties:
       - {name: value, type: double, required: true}
   - {type: CentralBank}
-  - {type: PolicyLever}
+  # policy_rate is declared because CutPolicyLever's guard reads it. It was not, and the guard
+  # was checked against a type with no attributes at all, so the act could never be proposed —
+  # silently, since an act that never appears looks the same as an act whose moment has not come.
+  - type: PolicyLever
+    properties:
+      - {name: policy_rate, type: double, description: "the lever's current setting, in percent"}
 verbs:
   - {name: RATE_CHANGE, class: institutional}
 relations:

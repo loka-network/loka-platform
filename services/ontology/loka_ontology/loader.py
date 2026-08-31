@@ -116,6 +116,7 @@ def _parse(raw: dict[str, Any]) -> Ontology:
                 guard=item.get("guard", ""),
                 effect=item.get("effect", ""),
                 controllable=bool(item.get("controllable", True)),
+                complement=item.get("complement"),
             )
         )
 
@@ -199,10 +200,15 @@ def _validate_references(onto: Ontology) -> None:
             raise OntologyLoadError(f"action {a.name} references undefined verb {a.verb}")
         if a.target not in onto.entities:
             raise OntologyLoadError(f"action {a.name} references undefined target {a.target}")
+        if a.complement is not None and a.complement not in onto.entities:
+            raise OntologyLoadError(
+                f"action {a.name} references undefined complement {a.complement}"
+            )
     _check_no_cycles(onto)
     _check_override_compatibility(onto)
     _check_relation_keys(onto)
     _check_norms(onto)
+    _check_conditions(onto)
 
 
 def _check_norms(onto: Ontology) -> None:
@@ -218,7 +224,6 @@ def _check_norms(onto: Ontology) -> None:
     and should be told rather than have it accepted and ignored.
     """
     by_name = {a.name: a for a in onto.actions}
-    declared = {p.name for e in onto.entities.values() for p in e.properties}
     for n in onto.norms:
         action = by_name.get(n.action)
         if action is None:
@@ -230,18 +235,72 @@ def _check_norms(onto: Ontology) -> None:
                 f"norm {n.name} governs {n.action}, which is uncontrollable (in Au); "
                 "norms are defined on controllable actions"
             )
-        # R11 — the condition must be about something Ω describes. A norm conditioned on an
-        # attribute that does not exist can never fire, which is the same failure as R9 and has
-        # the same consequence: it silently permits exactly what it was written to forbid, while
-        # the system goes on reporting that the rule is in force. Only a condition of the
-        # recognised numeric shape is checked; anything else is already treated as unevaluable
-        # at runtime, which is visible rather than silently permissive.
-        attribute = _condition_attribute(n.when)
-        if attribute is not None and attribute not in declared:
-            raise OntologyLoadError(
-                f"norm {n.name} is conditioned on {attribute!r}, which no entity declares; "
-                "it could never fire, so the action would be unconditionally permitted"
-            )
+        # R11 — the condition must be readable *where it will be evaluated*. A norm conditioned
+        # on an attribute that does not exist can never fire, which is the same failure as R9 and
+        # has the same consequence: it silently permits exactly what it was written to forbid,
+        # while the system goes on reporting that the rule is in force. Only a condition of the
+        # recognised numeric shape is checked; anything else is already treated as unevaluable at
+        # runtime, which is visible rather than silently permissive.
+        #
+        # The scope is the act's own participants, not the ontology at large. Checking only that
+        # some entity somewhere declares the name lets through the case this rule exists for:
+        # LateOrdersMustBeDisclosed governed NotifyDelay — applied to a Customer — on the
+        # condition days_late >= 3, an attribute of Order. Every name resolved, the rule loaded,
+        # and at runtime the obligation could never fire because a Customer has no days_late.
+        _check_condition(onto, n.when, f"norm {n.name}", action)
+
+
+def _check_conditions(onto: Ontology) -> None:
+    """An action's guard must be readable on the entities the action is applied to (CΩ R12).
+
+    Guards went unchecked while norms did not, and the gap was not theoretical: ShipStandard's
+    sibling NotifyDelay carried ``guard: "delay_days >= 1"`` for an attribute nothing in the
+    ontology declares under that name — the real one is ``days_late``. A guard that can never be
+    satisfied makes its act permanently unavailable, and nothing said so: the act simply never
+    appeared among the proposals, which reads exactly like "the condition did not hold today".
+
+    A norm at least announces itself when it fails to fire, because something was expected of it.
+    An act that is never proposed announces nothing.
+    """
+    for a in onto.actions:
+        _check_condition(onto, a.guard, f"action {a.name}", a)
+
+
+def _check_condition(onto: Ontology, condition: str, subject: str, action: ActionType) -> None:
+    """Reject a condition naming an attribute the act's own participants do not declare."""
+    attribute = _condition_attribute(condition)
+    if attribute is None:
+        return
+    types = [action.target] + ([action.complement] if action.complement else [])
+    visible = {name for t in types for name in _attributes_of(onto, t)}
+    if attribute in visible:
+        return
+
+    elsewhere = sorted(
+        e.name for e in onto.entities.values() if any(p.name == attribute for p in e.properties)
+    )
+    where = " or ".join(types)
+    hint = (
+        f"; {attribute!r} is declared on {', '.join(elsewhere)} — name it as the act's complement"
+        if elsewhere
+        else f"; no entity declares {attribute!r}"
+    )
+    raise OntologyLoadError(
+        f"{subject} is conditioned on {attribute!r}, which {where} does not declare{hint}. "
+        "The condition could never be read, so the rule could never fire"
+    )
+
+
+def _attributes_of(onto: Ontology, entity: str) -> set[str]:
+    """Attribute names visible on a type: its own plus everything inherited along ⪯."""
+    names: set[str] = set()
+    seen: set[str] = set()
+    cur: str | None = entity
+    while cur is not None and cur in onto.entities and cur not in seen:
+        seen.add(cur)
+        names.update(p.name for p in onto.entities[cur].properties)
+        cur = onto.entities[cur].subtype_of
+    return names
 
 
 _CONDITION_RE = re.compile(r"^\s*([A-Za-z_][\w.]*)\s*(?:>=|<=|==|>|<)\s*-?\d+(?:\.\d+)?\s*$")

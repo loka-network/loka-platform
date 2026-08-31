@@ -139,6 +139,12 @@ class ActionType:
     guard: str = ""
     effect: str = ""
     controllable: bool = True
+    #: A third participant the act is *about*, distinct from the one it is done *to*. Notifying a
+    #: customer is done to the customer and about an order, and the condition for doing it — how
+    #: late the delivery is — is a property of the order. Without somewhere to name it, such a
+    #: guard has to be written against the target, where the attribute does not exist, and the
+    #: act then never becomes available. See ``_check_conditions`` in the loader.
+    complement: str | None = None
 
 
 class NormStatus(StrEnum):

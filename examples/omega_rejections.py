@@ -25,13 +25,13 @@ entities:
   - type: BulkyItem
     subtype_of: Item
   - type: Seller
-    properties: [{name: seller_id, type: string}]
+    properties: [{name: seller_id, type: string}, {name: on_time_rate, type: double}]
 verbs:
   - {name: SUSPEND, class: institutional}
 constraints:
   - {verb: SUSPEND, agent_must_be: Seller, target_must_be: [Seller]}
 actions:
-  - {name: SuspendSeller, verb: SUSPEND, target: Seller, guard: "weight <= 100"}
+  - {name: SuspendSeller, verb: SUSPEND, target: Seller, guard: "on_time_rate < 1"}
 """
 
 CASES: list[tuple[str, str, str]] = [
@@ -108,15 +108,37 @@ CASES: list[tuple[str, str, str]] = [
     (
         "R11c",
         "a norm governing an uncontrollable action",
-        BASE.replace('guard: "weight <= 100"', 'guard: "weight <= 100", controllable: false')
+        BASE.replace('guard: "on_time_rate < 1"', 'guard: "on_time_rate < 1", controllable: false')
         + 'norms:\n  - {name: N1, action: SuspendSeller, status: forbidden, '
-          'when: "weight >= 1"}\n',
+          'when: "on_time_rate < 1"}\n',
     ),
     (
         "R11d",
         "a norm conditioned on an attribute nothing declares",
         BASE + 'norms:\n  - {name: N1, action: SuspendSeller, status: forbidden, '
                'when: "open_disputes >= 1"}\n',
+    ),
+    (
+        "R11e",
+        "a norm conditioned on a real attribute of the wrong entity",
+        # The case R11 used to let through, and the reason the check is scoped to the act's own
+        # participants: every name here resolves, so an ontology-wide search finds nothing wrong.
+        # Only asking *where the condition will be read* catches it.
+        BASE + 'norms:\n  - {name: N1, action: SuspendSeller, status: forbidden, '
+               'when: "weight <= 1"}\n',
+    ),
+    (
+        "R12a",
+        "a guard naming an attribute nothing declares",
+        BASE.replace('guard: "on_time_rate < 1"', 'guard: "open_disputes >= 1"'),
+    ),
+    (
+        "R12b",
+        "a guard naming a real attribute of the wrong entity",
+        # weight is declared — on Item. The act applies to a Seller, so the guard can never be
+        # read, and the act would simply never be proposed. Nothing else in the ontology is
+        # wrong, which is why an ontology-wide name search does not find this.
+        BASE.replace('guard: "on_time_rate < 1"', 'guard: "weight <= 100"'),
     ),
 ]
 

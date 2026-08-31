@@ -82,10 +82,15 @@ actions:
     guard: "weight_g <= 10000"
     effect: "the product is dispatched on the standard service"
 
+  # Done *to* the customer, *about* an order — and the condition is the order's. Written without
+  # the complement, the guard read `delay_days >= 1` against a Customer, which declares no such
+  # attribute (nor does anything else: the real name is days_late, on Order). The act was
+  # therefore never proposed, and nothing reported that; it looked like a quiet day.
   - name: NotifyDelay
     verb: NOTIFY_DELAY
     target: Customer
-    guard: "delay_days >= 1"
+    complement: Order
+    guard: "days_late >= 1"
     effect: "the customer is told the order is late and given a revised date"
 
   - name: SuspendSeller

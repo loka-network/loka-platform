@@ -9,7 +9,11 @@ _ONTOLOGY = """
 version: act-v1
 entities:
   - {type: CentralBank}
-  - {type: PolicyRate}
+  # policy_rate is declared because CutRate's guard reads it: a guard is checked against the
+  # attributes its target actually has, so a target with none makes the act unreachable.
+  - type: PolicyRate
+    properties:
+      - {name: policy_rate, type: double}
 verbs:
   - {name: RATE_CHANGE, class: institutional}
 actions:
