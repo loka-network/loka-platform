@@ -313,6 +313,7 @@ def build(texts: Sequence[str], builder: OntologyBuilder | None = None) -> KBSpe
     disposing of a bad proposal) — the caller sees a structured failure, never a silent bad KB.
     The KBSpec carries the three-facet analysis in ``facets`` (factual/cognitive/communication).
     """
+    from .core_types import partition_types, restrict
     from .verb_syntax import to_verb_syntax
 
     builder = builder or KeywordBuilder()
@@ -321,12 +322,22 @@ def build(texts: Sequence[str], builder: OntologyBuilder | None = None) -> KBSpe
     # parsed object rather than from the draft: what the reviewer reads is then the ontology
     # that loaded, not a second rendering of it that could drift from what was checked.
     ontology = load_ontology_str(_draft_to_yaml(draft))
+
+    # An extraction proposes terms; which of them are entity types is decided structurally,
+    # after the fact and the same way for every route. A term that has no attributes and is the
+    # subject of no verb is not an entity type — it is a term the document used. Recorded as a
+    # candidate rather than dropped, with the reason, so a reviewer can promote it: the filters
+    # tried before this one each removed real concepts and left nothing to notice.
+    partition = partition_types(ontology)
+    if partition.core:
+        ontology = restrict(ontology, partition)
     yaml = to_verb_syntax(ontology)
     return KBSpec(
         ontology_yaml=yaml,
         data_needs=draft.data_needs,
         method_needs=draft.method_needs,
         facets=analyze_facets(draft),  # the three-facet analysis
+        types=partition.as_dict(),
     )
 
 

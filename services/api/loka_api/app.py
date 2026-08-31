@@ -501,6 +501,23 @@ def create_app(world: World | None = None) -> FastAPI:
             })
         for item in _mixed_cluster_items(provenance):
             rec.review.insert(0, item)
+        # Terms the extraction proposed that did not qualify as entity types. On the list a
+        # reviewer reads, not only in the response body: a term recorded somewhere they do not
+        # look is a term that was dropped, whatever the record says.
+        candidates = (spec.types or {}).get("candidate_terms") or {}
+        if candidates:
+            rec.review.append({
+                "kind": "candidate_terms",
+                "target": f"{len(candidates)} of them",
+                "count": len(candidates),
+                "targets": sorted(candidates),
+                "detail": (
+                    f"{len(candidates)} terms were extracted and are not entity types: each has "
+                    "no attributes, is the subject of no verb, or both. They are kept so one "
+                    "can be promoted — extraction proposes terms, and which of them a domain "
+                    "has many of is not something reading prose settles."
+                ),
+            })
         app.state.kb_worlds[kb_id].ontology_id = rec.ontology_id
 
         out: dict[str, Any] = jsonable_encoder(spec)

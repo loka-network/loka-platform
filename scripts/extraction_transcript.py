@@ -166,6 +166,28 @@ def main() -> None:
         w("")
 
     if kb is not None:
+        types = dict(kb.types or {})
+        if types:
+            core = types.get("entity_types") or []
+            candidates = types.get("candidate_terms") or {}
+            w("## Which proposals are entity types\n")
+            w(
+                "Decided structurally, after extraction and the same way whichever route ran: a "
+                "kind of thing that **has** attributes and can be the **subject** of a verb. A "
+                "term that carries neither is not an entity type — it is a word the document "
+                "used. The judgement is a count over the extracted structure, so it does not "
+                "change with the model that produced it.\n"
+            )
+            w(f"- proposed: {len(core) + len(candidates)}")
+            w(f"- entity types: **{len(core)}** — {', '.join(core)}")
+            w(f"- candidate terms: {len(candidates)}, kept with the reason so one can be "
+              f"promoted\n")
+            for name, why in sorted(candidates.items())[:40]:
+                w(f"  - `{name}` — {why}")
+            if len(candidates) > 40:
+                w(f"  - … and {len(candidates) - 40} more")
+            w("")
+
         onto = load_ontology_str(kb.ontology_yaml)
         w("## The ontology that loaded\n")
         w(
