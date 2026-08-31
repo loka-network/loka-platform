@@ -129,8 +129,10 @@ def _signature(sig: str) -> tuple[str, dict[str, str]]:
                     f"malformed parameter {part.strip()!r} in {sig!r}; expected role: Type"
                 )
             roles[pm.group("role")] = pm.group("type")
-    if "subject" not in roles:
-        raise OntologyLoadError(f"verb {sig!r} declares no subject")
+    # An empty signature is allowed, and means something a draft needs to be able to say: the
+    # verb was found in the text, and who may use it on what has not been decided. Requiring a
+    # subject here would force extraction to invent one, which is the guess review exists to
+    # prevent. The checklist reports it as a missing constraint.
     return m.group("name"), roles
 
 
@@ -156,15 +158,27 @@ def _verbs(
             raise OntologyLoadError(f"verb entry has no 'sig': {item!r}")
         name, roles = _signature(item["sig"])
 
-        if item.get("via"):
+        # The *presence* of the key, not a value: a draft states that two types are related
+        # before anyone has said which field carries the link, and `via: null` is how it says
+        # so. Testing truthiness instead would silently reclassify every un-reviewed relation
+        # as an act, which is the one reading a reviewer cannot recover from.
+        if "via" in item:
             if "object" not in roles:
                 raise OntologyLoadError(f"relational verb {name!r} declares no object")
             rel: dict[str, Any] = {
                 "name": name,
                 "from": roles["subject"],
                 "to": roles["object"],
-                "via": item["via"],
             }
+            if item["via"]:
+                rel["via"] = item["via"]
+            # A relation is a verb, so it may carry an act class, and extraction gives it one:
+            # the classification stage answers "what kind of act is `lists`" for the same name
+            # the relation stage produced. Dropping it here would lose that answer, and the
+            # reviewer would be asked to classify a verb the model had already classified.
+            if item.get("act") and name.upper() not in seen_verbs:
+                verbs.append({"name": name.upper(), "class": item["act"]})
+                seen_verbs.add(name.upper())
             # ``each`` is optional on purpose: a missing cardinality is recorded as missing, not
             # silently widened to the unconstrained one. Review needs to see the difference.
             if item.get("each"):
@@ -178,6 +192,11 @@ def _verbs(
                 raise OntologyLoadError(f"verb {name!r} declares no act class")
             verbs.append({"name": verb_name, "class": item["act"]})
             seen_verbs.add(verb_name)
+
+        # A verb with no participants yet: it belongs to the vocabulary, but there is nothing to
+        # say about who may use it or what it acts on, so it yields no constraint and no act.
+        if "subject" not in roles:
+            continue
 
         target = roles.get("object", roles["subject"])
         key = (verb_name, roles["subject"], target)
@@ -274,6 +293,110 @@ def _norms(
             norm["rationale"] = item["why"]
         norms.append(norm)
     return norms
+
+
+def to_verb_syntax(onto: Ontology) -> str:
+    """Serialise an ontology in the verb-signature notation.
+
+    Round-trips: ``load_verb_syntax_str(to_verb_syntax(o))`` declares what ``o`` declares. That
+    matters because this is what a reviewer is handed. A draft they edit and submit has to come
+    back as the same ontology, or review is being done against a document that is not the one
+    under review.
+
+    Conditions are emitted inline rather than lifted into named predicates. A generated name
+    would be this module's invention, and a reviewer reading ``p1(x)`` learns less than one
+    reading ``delivered_lines < 20``. Names belong to whoever writes them by hand.
+    """
+    lines = [f"version: {onto.version}", "", "entities:", ""]
+
+    for e in onto.entities.values():
+        lines.append(f"  {e.name}:")
+        if e.subtype_of:
+            lines.append(f"    is: {e.subtype_of}")
+        if e.backing:
+            lines.append(f"    backing: {e.backing}")
+        if e.properties:
+            lines.append("    has:")
+            for p in e.properties:
+                spec = f"type: {p.base_type.value}"
+                if p.required:
+                    spec += ", required: true"
+                if p.description:
+                    spec += f", doc: {_quote(p.description)}"
+                lines.append(f"      {p.name}: {{{spec}}}")
+        lines.append("")
+
+    verb_class = {v.name: v.verb_class.value for v in onto.verbs.values()}
+    agent_of: dict[str, str] = {}
+    for c in onto.constraints:
+        agent_of.setdefault(c.verb, c.agent_must_be)
+
+    if onto.relations or onto.actions:
+        lines.append("verbs:")
+        lines.append("")
+
+    named_by_relation: set[str] = set()
+    for r in onto.relations:
+        lines.append(f'  - sig:  "{r.name}(subject: {r.from_type}, object: {r.to_type})"')
+        if r.name.upper() in verb_class:
+            lines.append(f"    act:  {verb_class[r.name.upper()]}")
+            named_by_relation.add(r.name.upper())
+        # Emitted even when empty, because the key is what marks this verb as a relation and
+        # because an absent traversal field is a question for review, not a detail to omit.
+        lines.append(f"    via:  {r.via if r.via else 'null'}")
+        if r.cardinality is not None:
+            lines.append(f"    each: {r.cardinality.value}")
+        lines.append("")
+
+    for a in onto.actions:
+        roles = [f"subject: {agent_of.get(a.verb, a.target)}", f"object: {a.target}"]
+        if a.complement:
+            roles.append(f"complement: {a.complement}")
+        lines.append(f'  - sig:    "{a.verb.lower()}({", ".join(roles)})"')
+        lines.append(f"    act:    {verb_class.get(a.verb, 'factual')}")
+        if a.name != _camel(a.verb.lower()):
+            lines.append(f"    as:     {a.name}")
+        if a.guard:
+            lines.append(f"    guard:  {_quote(a.guard)}")
+        if a.effect:
+            lines.append(f"    effect: {_quote(a.effect)}")
+        if not a.controllable:
+            lines.append("    controllable: false")
+        lines.append("")
+
+    # A verb no act and no relation uses — in the vocabulary, with nothing yet said about who
+    # may use it on what. Written with an empty signature, which is the document saying exactly
+    # that. Dropping it to a comment would lose a declared verb on the next load.
+    used = {a.verb for a in onto.actions} | named_by_relation
+    for name in (n for n in verb_class if n not in used):
+        lines.append(f'  - sig:  "{name.lower()}()"')
+        lines.append(f"    act:  {verb_class[name]}")
+        lines.append("")
+
+    if onto.norms:
+        lines.append("norms:")
+        lines.append("")
+        by_name = {a.name: a for a in onto.actions}
+        for n in onto.norms:
+            action = by_name.get(n.action)
+            verb = action.verb.lower() if action else n.action
+            modal = {v: k for k, v in _MODALITY.items()}[n.status.value]
+            rule = f"{modal}({verb}(s, o))"
+            if n.when:
+                rule += f" when {n.when}"
+            lines.append(f'  - rule: "{rule}"')
+            lines.append(f"    name: {n.name}")
+            if n.rationale:
+                lines.append(f"    why:  {_quote(n.rationale.strip())}")
+            lines.append("")
+
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _quote(text: str) -> str:
+    """YAML-safe double-quoted scalar on one line."""
+    flat = " ".join(text.split())
+    return '"' + flat.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
 def _resolve(when: str, predicates: dict[str, str]) -> str:

@@ -1,0 +1,39 @@
+# health-v1, written in the verb-signature notation.
+#
+# The counterpart to supply_ontology_v3.yaml, and a much thinner one: a single entity, no
+# subtyping and no relations, so it exercises almost none of what an ontology can say. It is
+# kept because a notation that only works on the case it was designed for has not been shown to
+# work — and because a one-entity domain is where a missing role is easiest to miss.
+#
+# There is no `object` here. Raising a budget is done by a country to itself; the signature says
+# so rather than leaving the reader to infer it from a target field written somewhere else.
+version: health-v1
+
+entities:
+
+  Country:
+    has:
+      # The causal roles — outcome, policy dial, control — are not part of Ω. They are assigned
+      # during review, which is why every draft raises assign_method_roles on the checklist: a
+      # text describes the world, it does not say which variable is the one being explained.
+      under5_mortality:      {type: double, doc: "deaths before age five per 1,000 live births"}
+      health_exp_per_capita: {type: double, doc: "current health expenditure per capita, current US$"}
+      gdp_per_capita:        {type: double, doc: "GDP per capita, current US$"}
+      immunization_dpt:      {type: double, doc: "DPT immunisation coverage, % of children aged 12-23 months"}
+      sanitation_access:     {type: double, doc: "population using at least basic sanitation, %"}
+      water_access:          {type: double, doc: "population using at least basic drinking water, %"}
+      fertility_rate:        {type: double, doc: "births per woman"}
+      urban_pct:             {type: double, doc: "urban population, % of total"}
+
+verbs:
+
+  - sig:    "set_health_budget(subject: Country)"
+    act:    institutional
+    as:     RaiseHealthSpending
+    guard:  "health_exp_per_capita > 0"
+    effect: "health_exp_per_capita increases to the chosen level"
+
+# No predicates and no norms. Worth stating rather than leaving as an absence: nothing in this
+# domain says what may, must or must not be done, so the act is permitted by default and the
+# deontic layer never speaks. The review checklist reports that as no_norms, which is the honest
+# reading — a panel of indicators carries no obligations.

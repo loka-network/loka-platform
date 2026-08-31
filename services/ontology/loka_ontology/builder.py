@@ -313,10 +313,15 @@ def build(texts: Sequence[str], builder: OntologyBuilder | None = None) -> KBSpe
     disposing of a bad proposal) — the caller sees a structured failure, never a silent bad KB.
     The KBSpec carries the three-facet analysis in ``facets`` (factual/cognitive/communication).
     """
+    from .verb_syntax import to_verb_syntax
+
     builder = builder or KeywordBuilder()
     draft = builder.propose(texts)
-    yaml = _draft_to_yaml(draft)
-    load_ontology_str(yaml)  # validate: raises on inconsistency
+    # Parsed before it is handed on, which is the validation step, and re-emitted from the
+    # parsed object rather than from the draft: what the reviewer reads is then the ontology
+    # that loaded, not a second rendering of it that could drift from what was checked.
+    ontology = load_ontology_str(_draft_to_yaml(draft))
+    yaml = to_verb_syntax(ontology)
     return KBSpec(
         ontology_yaml=yaml,
         data_needs=draft.data_needs,

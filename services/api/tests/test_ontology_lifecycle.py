@@ -172,9 +172,10 @@ def test_publishing_rebinds_the_world_to_the_reviewed_ontology() -> None:
 
     # the builder could not infer that GDP has a numeric value; the reviewer declares it
     reviewed = built["ontology_yaml"].replace(
-        "  - type: GDP\n",
-        "  - type: GDP\n    properties:\n      - {name: value, type: double}\n",
+        "  GDP:\n",
+        "  GDP:\n    has:\n      value: {type: double}\n",
     )
+    assert reviewed != built["ontology_yaml"], "the reviewer's edit did not apply"
     assert client.put(f"/ontology/{oid}", json={"ontology_yaml": reviewed}).status_code == 200
     published = client.post(f"/ontology/{oid}/publish", json={"version": "macro-v1"})
     assert published.json()["worlds_rebound"] == 1
@@ -215,7 +216,7 @@ def test_inference_guesses_and_the_checklist_is_where_that_is_caught() -> None:
     review is the step that corrects it."""
     client = TestClient(create_app())
     body = client.post("/build-kb-from-data", json={"tables": {"Seller": _ROWS}}).json()
-    assert "name: joined\n    type: string" in body["ontology_yaml"]   # the wrong guess, visible
+    assert "joined: {type: string" in body["ontology_yaml"]             # the wrong guess, visible
     assert body["state"] == "draft"                                    # and not authoritative
 
 

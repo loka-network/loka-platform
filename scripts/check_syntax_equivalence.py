@@ -23,8 +23,13 @@ from loka_ontology.loader import load_ontology  # noqa: E402
 from loka_ontology.model import Ontology  # noqa: E402
 from loka_ontology.verb_syntax import load_verb_syntax  # noqa: E402
 
-CLASSIC = ROOT / "examples" / "supply_ontology.yaml"
-VERB_SYNTAX = ROOT / "examples" / "supply_ontology_v3.yaml"
+#: Every ontology that exists in both notations. A notation shown to work on the one domain it
+#: was designed against has not been shown to work; the thin domain is here because a missing
+#: role is easiest to overlook where there is almost nothing to declare.
+PAIRS = [
+    (ROOT / "examples" / "supply_ontology.yaml", ROOT / "examples" / "supply_ontology_v3.yaml"),
+    (ROOT / "examples" / "health_ontology.yaml", ROOT / "examples" / "health_ontology_v3.yaml"),
+]
 
 
 #: Fields that document the ontology rather than define it. They are compared, but a difference
@@ -89,44 +94,50 @@ def _diff(section: str, old: Any, new: Any) -> list[str]:
     return out
 
 
-def main() -> None:
-    old, new = load_ontology(CLASSIC), load_verb_syntax(VERB_SYNTAX)
-
-    print(f"classic     : {CLASSIC.relative_to(ROOT)}")
-    print(f"verb syntax : {VERB_SYNTAX.relative_to(ROOT)}\n")
-
+def _check(classic_path: Path, verb_path: Path) -> list[str]:
+    old, new = load_ontology(classic_path), load_verb_syntax(verb_path)
     classic = _normalise(old, prose=False)
     verb = _normalise(new, prose=False)
+
+    print(f"  {classic_path.name}  ==  {verb_path.name}")
+    counts = {k: (len(v) if isinstance(v, list) else 1) for k, v in verb.items()}
+    print("    " + ", ".join(f"{k} {n}" for k, n in counts.items() if k != "version"))
 
     problems: list[str] = []
     for section in classic:
         problems += _diff(section, classic[section], verb[section])
-
-    counts = {k: (len(v) if isinstance(v, list) else 1) for k, v in verb.items()}
-    print(
-        "loaded from the verb syntax: "
-        + ", ".join(f"{k} {n}" for k, n in counts.items() if k != "version")
-    )
-
-    if problems:
-        print("\nthe two files do NOT declare the same ontology:\n")
-        print("\n".join(problems))
-        raise SystemExit(1)
-
-    print("\nthe two files declare the same ontology, field for field.")
-    print("nothing downstream of the loader sees a different object.")
 
     # Reported, not enforced. A reader should know the documentation strings moved even though
     # the declarations did not.
     prose = [
         line
         for section in classic
-        for line in _diff(section, _normalise(old, prose=True)[section],
-                          _normalise(new, prose=True)[section])
+        for line in _diff(
+            section,
+            _normalise(old, prose=True)[section],
+            _normalise(new, prose=True)[section],
+        )
     ]
     if prose:
         n = sum(1 for line in prose if line.strip().startswith(("-", "+"))) // 2
-        print(f"\n{n} documentation string(s) differ (description / rationale wording only).")
+        print(f"    {n} documentation string(s) differ (wording only)")
+    return problems
+
+
+def main() -> None:
+    print(f"{len(PAIRS)} ontologies, each written both ways:\n")
+    problems: list[str] = []
+    for classic_path, verb_path in PAIRS:
+        problems += _check(classic_path, verb_path)
+        print()
+
+    if problems:
+        print("the notations do NOT declare the same ontology:\n")
+        print("\n".join(problems))
+        raise SystemExit(1)
+
+    print("every pair declares the same ontology, field for field.")
+    print("nothing downstream of the loader sees a different object.")
 
 
 if __name__ == "__main__":

@@ -152,7 +152,20 @@ async def infer_from_adapter(
 
 
 def to_yaml(ontology: Ontology) -> str:
-    """Serialise an ontology back to the loader's YAML format (round-trips through load)."""
+    """Serialise an ontology for review, in the verb-signature notation.
+
+    Route B produces the same kind of draft as Route A and a reviewer reads them the same way,
+    so they are written the same way. The classic serialiser is kept below as
+    :func:`to_classic_yaml` — files in the old notation still load, and a caller that needs to
+    write one can.
+    """
+    from .verb_syntax import to_verb_syntax
+
+    return to_verb_syntax(ontology)
+
+
+def to_classic_yaml(ontology: Ontology) -> str:
+    """Serialise to the pre-signature YAML format (round-trips through load)."""
     entities: list[dict[str, object]] = []
     for e in ontology.entities.values():
         item: dict[str, object] = {"type": e.name}

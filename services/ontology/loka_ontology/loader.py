@@ -33,19 +33,45 @@ class OntologyLoadError(ValueError):
 
 
 def load_ontology(path: str | Path) -> Ontology:
-    """Load an ontology from a YAML file."""
-    raw = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
-    if not isinstance(raw, dict):
-        raise OntologyLoadError("top level must be a mapping (dict)")
-    return _parse(raw)
+    """Load an ontology from a YAML file, in either notation."""
+    return load_ontology_str(Path(path).read_text(encoding="utf-8"))
 
 
 def load_ontology_str(text: str) -> Ontology:
-    """Load an ontology from a YAML string (convenient for tests)."""
+    """Load an ontology from a YAML string, in either notation.
+
+    Both are accepted because both are in circulation: drafts are now written as verb
+    signatures, and the files that predate the change still load. Which one a document uses is
+    read from its shape rather than declared, so a reviewer editing a draft does not have to
+    keep a format marker correct as well as the content.
+    """
     raw = yaml.safe_load(text)
     if not isinstance(raw, dict):
         raise OntologyLoadError("top level must be a mapping (dict)")
+    if _is_verb_syntax(raw):
+        from .verb_syntax import to_classic  # local: verb_syntax parses through _parse
+
+        return _parse(to_classic(raw))
     return _parse(raw)
+
+
+def _is_verb_syntax(raw: dict[str, Any]) -> bool:
+    """Tell the two notations apart by shape.
+
+    Entities are a mapping of name to body in one and a list of records in the other, which
+    settles almost every document on its own. The verb list is checked too, for the case of an
+    ontology with no entities at all — rare, but it should not fall to whichever branch happens
+    to fail more obscurely.
+    """
+    entities = raw.get("entities")
+    if isinstance(entities, dict):
+        return True
+    if isinstance(entities, list) and entities:
+        return False
+    verbs = raw.get("verbs")
+    if isinstance(verbs, list) and verbs and isinstance(verbs[0], dict):
+        return "sig" in verbs[0]
+    return "predicates" in raw
 
 
 def _parse(raw: dict[str, Any]) -> Ontology:

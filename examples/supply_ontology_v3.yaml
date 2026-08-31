@@ -59,33 +59,34 @@ entities:
       customer_id:    {type: string, required: true, doc: "identity key"}
       customer_state: {type: string, doc: "two-letter Brazilian state code"}
 
-# ── V: verbs. A verb with `via` is a relation; a verb with a guard or effect is an action. ──
+# ── V: verbs. A verb carrying a `via` key is a relation; one with a guard or an effect is an
+#       act. The key, not its value: `via: null` states that two types are related and that
+#       which field carries the link is still an open question for review.
 #
-# `act`         factual | communicative | institutional
-# `via`         the attribute the link is walked by — present only on relational verbs
+# `act`         factual | communicative | institutional — also puts the name in the vocabulary
+# `via`         the attribute the link is walked by; present (possibly null) on relational verbs
 # `each`        cardinality of the subject→object mapping
 # `as`          the action's name, when it differs from the verb (see the note on strike below)
 # `controllable` false marks an act of the environment: modelled, never proposed
 verbs:
 
-  # Relational verbs — these replace the former `relations:` block.
+  # Relational verbs — these replace the former `relations:` block. None carries `act:`:
+  # this ontology never declared them as verbs, and adding a class here would be inventing
+  # one. A relation that IS in the vocabulary — as extraction produces, having classified
+  # the verb it read — carries `act:` and is registered as a verb as well as a link.
   - sig:  "contains(subject: Order, object: OrderItem)"
-    act:  factual
     via:  order_id
     each: one_to_many
 
   - sig:  "of_product(subject: OrderItem, object: Product)"
-    act:  factual
     via:  product_id
     each: many_to_one
 
   - sig:  "fulfilled_by(subject: OrderItem, object: Seller)"
-    act:  factual
     via:  seller_id
     each: many_to_one
 
   - sig:  "placed_by(subject: Order, object: Customer)"
-    act:  factual
     via:  customer_id
     each: many_to_one
 

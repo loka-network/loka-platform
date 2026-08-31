@@ -26,11 +26,22 @@ def publish_built_ontology(
     """
     oid = built["ontology_id"]
     yaml_text = built["ontology_yaml"]
-    for entity, props in (declare or {}).items():
-        block = "".join(f"      - {{name: {n}, type: {t}}}\n" for n, t in props)
-        yaml_text = yaml_text.replace(
-            f"  - type: {entity}\n", f"  - type: {entity}\n    properties:\n{block}", 1
-        )
+    if declare:
+        # Edited through the parser rather than by string replacement. The draft is written in
+        # the verb-signature notation, where an entity that already declares attributes and one
+        # that declares none are different shapes; a textual insert gets one of them wrong, and
+        # gets it wrong silently — the property simply never arrives, and the failure surfaces
+        # later as data the ontology does not admit.
+        import yaml as _yaml
+
+        doc = _yaml.safe_load(yaml_text)
+        for entity, props in declare.items():
+            body = doc["entities"].get(entity) or {}
+            has = body.get("has") or {}
+            has.update({n: {"type": t} for n, t in props})
+            body["has"] = has
+            doc["entities"][entity] = body
+        yaml_text = _yaml.safe_dump(doc, sort_keys=False, allow_unicode=True)
     edited = client.put(f"/ontology/{oid}", json={"ontology_yaml": yaml_text})
     assert edited.status_code == 200, edited.text
     published = client.post(f"/ontology/{oid}/publish", json={"version": version})

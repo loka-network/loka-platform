@@ -12,6 +12,12 @@ entities:
       - {name: urban_pct,             type: double}   # control
 verbs:
   - {name: SET_HEALTH_BUDGET, class: institutional}
+# Who may set a health budget went unstated here while the supply ontology stated it for every
+# verb, and nothing asked: a verb with no constraint is simply a verb nobody is recorded as able
+# to use. Writing the act as set_health_budget(subject: Country) makes the omission impossible —
+# a signature has to name its subject — which is how this one came to light.
+constraints:
+  - {verb: SET_HEALTH_BUDGET, agent_must_be: Country, target_must_be: [Country]}
 actions:
   - name: RaiseHealthSpending
     verb: SET_HEALTH_BUDGET
