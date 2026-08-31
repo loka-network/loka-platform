@@ -111,6 +111,17 @@ class OntologyEngine:
             if other != name and name in self.supertypes(other)
         ]
 
+    def backing_of(self, entity_type: str) -> str | None:
+        """The table this entity is read from, or None if Ω does not say.
+
+        Not inherited along ⪯: a subtype is a different set of rows, and defaulting it to its
+        supertype's table would silently read every Product when asked for the bulky ones. An
+        entity with no backing is one nothing can be read for, which a caller has to handle
+        rather than have guessed at from the type's name.
+        """
+        entity = self._onto.entities.get(entity_type)
+        return entity.backing if entity else None
+
     # ---- property queries (⪯-inherited) + value validation ----
 
     def properties_of(self, entity_type: str) -> dict[str, Property]:

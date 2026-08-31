@@ -102,6 +102,19 @@ def data_source() -> dict[str, Any]:
     went wrong — a working answer over the wrong data looks exactly like a working answer. This
     is reported alongside the scenario so the question is answerable without shell access.
     """
+    dsn = os.getenv("LOKA_PG_DSN")
+    if dsn:
+        # The credentials are not returned. Which host is being read is what an operator needs
+        # in order to answer "is this the right data"; the password is not part of that.
+        host = dsn.rsplit("@", 1)[-1] if "@" in dsn else dsn
+        return {
+            "kind": "postgres",
+            "path": host,
+            "planner": "plan_select — table and columns taken from Ω, values bound",
+            "configured": dsn.rsplit("@", 1)[-1] if "@" in dsn else None,
+            "configured_path_usable": None,
+        }
+
     configured = os.getenv("LOKA_SUPPLY_DATA")
     resolved = _resolve_directory()
     if resolved is None:
@@ -138,7 +151,13 @@ def load_supply_dataset(engine: Any | None = None) -> dict[str, list[dict[str, A
     said on stderr and carried in :func:`data_source` so the mistake is visible over HTTP too.
 
     Numeric strings are converted so guards and comparisons operate on numbers, not text.
+
+    ``LOKA_PG_DSN`` takes precedence over all three: with a database configured, the rows come
+    from it, planned by the ontology rather than read from a file.
     """
+    if os.getenv("LOKA_PG_DSN"):
+        return _from_postgres(engine)
+
     directory = _resolve_directory()
     if not directory:
         return {k: [dict(r) for r in v] for k, v in _SAMPLE.items()}
@@ -159,6 +178,47 @@ def load_supply_dataset(engine: Any | None = None) -> dict[str, list[dict[str, A
             continue
         with open(path) as f:
             data[entity] = [{k: _coerce(v) for k, v in row.items()} for row in csv.DictReader(f)]
+    return data
+
+
+def _from_postgres(engine: Any | None) -> dict[str, list[dict[str, Any]]]:
+    """Read every entity from its declared table, through the whitelisted planner.
+
+    The statement is not written here. ``plan_select`` is given the table the entity declares as
+    its ``backing`` and the columns Ω declares as its attributes, and it refuses anything that
+    is not a plain identifier — so what reaches the database is bounded by the ontology, not by
+    what this function happens to ask for. Change Ω and the query changes; name a column Ω does
+    not declare and there is no way to express it.
+
+    An entity with no ``backing`` is skipped rather than guessed at: a table name inferred from
+    a type name is a naming convention in application code, which is the thing ``backing``
+    exists to remove.
+
+    A failure raises. The bundled sample is a fallback for a mistyped mount at startup; a DSN
+    that is set is an instruction to serve from the database, and quietly serving a dozen
+    hand-written rows instead is the failure :func:`data_source` was written to make visible.
+    """
+    import psycopg
+    from loka_adapters.sql_planner import plan_select
+
+    if engine is None:
+        raise RuntimeError(
+            "LOKA_PG_DSN is set but no ontology was supplied; the tables to read and the "
+            "columns to read from them are declared in Ω, so there is nothing to plan without it"
+        )
+
+    dsn = os.environ["LOKA_PG_DSN"]
+    data: dict[str, list[dict[str, Any]]] = {}
+    with psycopg.connect(dsn) as conn:
+        for entity in engine.entity_types():
+            table = engine.backing_of(entity)
+            if not table:
+                continue
+            columns = sorted(engine.properties_of(entity))
+            sql, params = plan_select(table, columns)
+            with conn.cursor() as cur:
+                cur.execute(sql, params)
+                data[entity] = [dict(zip(columns, row)) for row in cur.fetchall()]
     return data
 
 
