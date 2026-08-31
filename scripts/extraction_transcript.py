@@ -177,17 +177,27 @@ def main() -> None:
         w("")
 
         notes = getattr(builder, "notes", {}) or {}
-        grounding = notes.get("grounding") or {}
+        # On the builder itself, not in its notes: `notes` collects what a stage remarked on,
+        # while grounding is a running record the stages write into as they go.
+        recorder_g = getattr(builder, "grounding", None)
+        grounding = recorder_g.as_dict() if recorder_g is not None else {}
         if grounding:
             w("## Grounding\n")
             w(
-                "Each concept had to cite a phrase from the document. The citation is checked "
-                "back against the text; what could not be found is listed, not removed — an "
-                "unfound name may be a correct generalisation the text words differently.\n"
+                "Every proposal had to cite a phrase from the document, and the citation is "
+                "checked back against the text on word tokens — so CamelCase and plurals do not "
+                "decide it. What could not be found is listed, not removed: an unfound name may "
+                "be a correct generalisation the text words differently, and the two being "
+                "indistinguishable in the result is the thing that is unacceptable.\n"
             )
             w(f"- checked: {grounding.get('checked')}")
-            w(f"- found in the source: {grounding.get('grounded')}")
-            w(f"- not found: {grounding.get('ungrounded') or 'none'}\n")
+            w(f"- found in the source: {grounding.get('grounded')} "
+              f"({grounding.get('rate', 0) * 100:.1f}%)")
+            ungrounded = grounding.get("ungrounded") or []
+            w(f"- not found: {len(ungrounded)}\n")
+            for name in ungrounded:
+                w(f"  - `{name}`")
+            w("")
 
         for key in ("entities_below_mention_floor", "entities_without_mentions",
                     "degenerate_entity_replies"):
