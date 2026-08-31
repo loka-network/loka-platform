@@ -15,6 +15,7 @@ version: supply-v2
 
 entities:
   - type: Seller
+    backing: sellers
     properties:
       - {name: seller_id,    type: string, required: true, description: "identity key"}
       - {name: seller_state, type: string, description: "two-letter Brazilian state code"}
@@ -22,6 +23,7 @@ entities:
       - {name: delivered_lines, type: integer, description: "how many delivered orders on_time_rate was computed over — its denominator, so a rate can be told apart from a rate worth acting on"}
 
   - type: Product
+    backing: products
     properties:
       - {name: product_id,  type: string, required: true, description: "identity key"}
       - {name: weight_g,    type: double, description: "shipping weight in grams"}
@@ -31,11 +33,13 @@ entities:
   # A subtype whose only job is to change what is permitted: an over-spec item cannot ship on the
   # standard service. Eligibility follows from ⪯ plus the action's guard, not from code.
   - type: BulkyProduct
+    backing: bulky_products
     subtype_of: Product
     properties:
       - {name: weight_g, type: double, description: "shipping weight in grams; above the standard-service limit declared by the ShipStandard guard"}
 
   - type: OrderItem
+    backing: order_items
     properties:
       - {name: item_id,       type: string, required: true, description: "identity key (order_id + line number)"}
       - {name: order_id,      type: string, description: "link to Order (traversed by relation contains)"}
@@ -45,6 +49,7 @@ entities:
       - {name: price,         type: double, description: "item price, in BRL"}
 
   - type: Order
+    backing: orders
     properties:
       - {name: order_id,    type: string, required: true, description: "identity key"}
       - {name: customer_id, type: string, description: "link to Customer (traversed by relation placed_by)"}
@@ -52,6 +57,7 @@ entities:
       - {name: status,      type: string, description: "order status as recorded by the marketplace"}
 
   - type: Customer
+    backing: customers
     properties:
       - {name: customer_id,    type: string, required: true, description: "identity key"}
       - {name: customer_state, type: string, description: "two-letter Brazilian state code"}

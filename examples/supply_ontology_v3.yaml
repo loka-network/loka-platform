@@ -18,6 +18,7 @@ version: supply-v2
 entities:
 
   Seller:
+    backing: sellers
     has:
       seller_id:       {type: string,  required: true, doc: "identity key"}
       seller_state:    {type: string,  doc: "two-letter Brazilian state code"}
@@ -25,6 +26,7 @@ entities:
       delivered_lines: {type: integer, doc: "how many delivered orders on_time_rate was computed over — its denominator, so a rate can be told apart from a rate worth acting on"}
 
   Product:
+    backing: products
     has:
       product_id:  {type: string, required: true, doc: "identity key"}
       weight_g:    {type: double, doc: "shipping weight in grams"}
@@ -34,11 +36,13 @@ entities:
   # A subtype whose only job is to change what is permitted: an over-spec item cannot ship on
   # the standard service. Eligibility follows from `is` plus the verb's guard, not from code.
   BulkyProduct:
+    backing: bulky_products
     is: Product
     has:
       weight_g: {type: double, doc: "shipping weight in grams; above the standard-service limit declared by the ShipStandard guard"}
 
   OrderItem:
+    backing: order_items
     has:
       item_id:       {type: string, required: true, doc: "identity key (order_id + line number)"}
       order_id:      {type: string, doc: "link to Order (traversed by verb contains)"}
@@ -48,6 +52,7 @@ entities:
       price:         {type: double, doc: "item price, in BRL"}
 
   Order:
+    backing: orders
     has:
       order_id:    {type: string, required: true, doc: "identity key"}
       customer_id: {type: string, doc: "link to Customer (traversed by verb placed_by)"}
@@ -55,6 +60,7 @@ entities:
       status:      {type: string, doc: "order status as recorded by the marketplace"}
 
   Customer:
+    backing: customers
     has:
       customer_id:    {type: string, required: true, doc: "identity key"}
       customer_state: {type: string, doc: "two-letter Brazilian state code"}

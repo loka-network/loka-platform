@@ -72,6 +72,14 @@ _MIN_CHARS_PER_ENTITY = 100
 #: Below this many entity types, no ratio applies: a small domain is allowed to be dense.
 _ALWAYS_PLAUSIBLE_ENTITIES = 20
 
+#: Distinct phrases in the source that must refer to a proposal for it to be kept.
+#:
+#: Two, because one is the definition of the thing being excluded: a kind the document names
+#: once. It is a low bar deliberately — the aim is to drop what the text mentions in passing,
+#: not to adjudicate what the domain contains, which is review's job. Raising it would start
+#: discarding real concepts from short documents.
+_MIN_MENTIONS = 2
+
 #: Extra attempts when a reply is not readable JSON.
 #:
 #: Not a token problem and not fixed by a larger budget: a reply that ends in a balanced brace
@@ -200,13 +208,24 @@ class _StagedBuilder:
     #: name of the paradigm, recorded on the draft
     paradigm = "staged"
 
+    #: ``{limit}`` is filled per document. The budget is in the instruction, not only in the
+    #: check that runs afterwards, because a reply of 204 types is not a good answer with a tail
+    #: to trim — it is a different kind of answer, and retrying the same unbounded prompt is a
+    #: coin flip. Review of the previous draft made the point directly: if the prompts are well
+    #: designed, the results should be almost independent of the model. An instruction that
+    #: never says how many is one the model has to guess at, and models guess differently.
     ENTITIES = (
         "List the entity types a domain ontology for this text needs. An entity type is a kind "
-        "of thing the domain has many of, not a one-off. Reply with ONLY JSON: "
-        '{"entities": [{"name": <CamelCase>, "subtype_of": <name|null>, '
-        '"evidence": <the exact phrase from the text that denotes it>}]}. '
-        "The evidence must be copied from the text, not paraphrased. If a type is implied rather "
-        "than named, give the phrase that implies it. No prose, no code fences."
+        "of thing the domain has many of, not a one-off. Propose at most {limit}. "
+        "For each one give every phrase in the text that refers to it, copied exactly. "
+        "A kind the text refers to only once is not an entity type — leave it out. "
+        "A property of something else, a quantity, a state or an event is not an entity type "
+        "either: weight, late, approved and the delay each belong to a type rather than being "
+        "one. Do not produce a type per clause or per sentence. "
+        "Reply with ONLY JSON: "
+        '{{"entities": [{{"name": <CamelCase>, "subtype_of": <name|null>, '
+        '"mentions": [<exact phrase>, <exact phrase>, ...]}}]}}. '
+        "Every phrase must be copied from the text, not paraphrased. No prose, no code fences."
     )
     ATTRIBUTES = (
         "For each entity type listed, give the attributes the text states it has. Reply with "
@@ -247,8 +266,16 @@ class _StagedBuilder:
 
     @property
     def system_prompt(self) -> str:
-        """Every instruction this builder sends, in order. What ran, for the record."""
-        return "\n\n---\n\n".join(f"[{name}] {p}" for name, p in self._prompts())
+        """Every instruction this builder sends, in order. What ran, for the record.
+
+        A stage whose instruction is filled in per document is recorded as it was sent, not as
+        the template it came from. The record exists so a result can be reproduced or disputed,
+        and a prompt with ``{limit}`` still in it cannot be either.
+        """
+        sent = getattr(self, "_sent", {})
+        return "\n\n---\n\n".join(
+            f"[{name}] {sent.get(name, p)}" for name, p in self._prompts()
+        )
 
     def _ask_many(
         self, jobs: Sequence[tuple[str, str, str]]
@@ -327,8 +354,13 @@ class _StagedBuilder:
         # so the ratio only starts to bite once there are more concepts than any small domain
         # plausibly has.
         limit = max(_ALWAYS_PLAUSIBLE_ENTITIES, len(source) // _MIN_CHARS_PER_ENTITY)
+        # The same number in the instruction and in the check. Two copies would eventually
+        # disagree, and a model told one budget while judged against another is being set up.
+        prompt = self.ENTITIES.format(limit=limit)
+        self._sent: dict[str, str] = getattr(self, "_sent", {})
+        self._sent["entities"] = prompt
         for attempt in range(1 + _JSON_RETRIES):
-            obj = self._ask("entities", self.ENTITIES, source)
+            obj = self._ask("entities", prompt, source)
             proposed = [e for e in obj.get("entities", []) if isinstance(e, dict) and e.get("name")]
             if len(proposed) <= limit:
                 break
@@ -345,13 +377,48 @@ class _StagedBuilder:
                 )
         out: list[EntityDraft] = []
         seen: set[str] = set()
+        dropped: list[str] = []
+        unclaimed: list[str] = []
         for e in proposed:
             name = str(e.get("name") or "").strip()
             if not name or name in seen:
                 continue
             seen.add(name)
-            self.grounding.note(name, str(e.get("evidence") or ""), source)
+
+            # "Mentioned more than once" as a field rather than as an instruction. Told in prose
+            # that a quantity is not an entity type, one run still proposed Weight, Delay,
+            # Threshold and Score — the four the instruction names. A prohibition the model can
+            # agree with and then ignore costs nothing to ignore; a count it has to produce is
+            # something a reviewer can weigh.
+            #
+            # Reported, not enforced, and the measurement is why. Used as a filter it kept 10 of
+            # 47 proposals: it removed Weight, Size, Threshold, Score, Breach and Strike, and it
+            # also removed Carrier, Marketplace, Platform and Contract, while keeping Price and
+            # PunctualityRate — which are attributes that happened to come with two phrases. The
+            # 27 dropped all carried exactly one mention, which reads as a model listing one
+            # phrase per concept rather than as a document naming each of them once. A count
+            # that measures the reply's diligence cannot be allowed to decide what survives.
+            mentions = [str(m) for m in (e.get("mentions") or []) if str(m).strip()]
+            evidence = str(e.get("evidence") or "")
+            self.grounding.note(name, mentions[0] if mentions else evidence, source)
+
+            if mentions:
+                found = [m for m in mentions if _appears_in(m, source)]
+                if len(found) < _MIN_MENTIONS:
+                    dropped.append(f"{name} ({len(found)})")
+            else:
+                # The reply did not carry the count, so there is nothing to test — a floor
+                # applied to a claim the model never made would reject on our own omission.
+                unclaimed.append(name)
+
             out.append(EntityDraft(name=name, subtype_of=e.get("subtype_of") or None))
+        if dropped:
+            # Reported, because this is the reviewer's business: these are concepts the model
+            # proposed and the source did not support twice, and a reviewer restoring one is a
+            # different act from never having been shown it.
+            self.notes["entities_below_mention_floor"] = dropped
+        if unclaimed:
+            self.notes["entities_without_mentions"] = unclaimed
         # A subtype pointing at a type that was not proposed cannot load, and dropping the link
         # keeps the type: losing "BulkyItem is a kind of Item" beats losing BulkyItem.
         names = {e.name for e in out}
