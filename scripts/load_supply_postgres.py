@@ -33,6 +33,7 @@ ROOT = Path(__file__).resolve().parent.parent
 for pkg in ("ontology", "adapters"):
     sys.path.insert(0, str(ROOT / "services" / pkg))
 
+from loka_ontology.engine import OntologyEngine  # noqa: E402
 from loka_ontology.loader import load_ontology  # noqa: E402
 from loka_ontology.model import BaseType, Ontology  # noqa: E402
 
@@ -53,13 +54,29 @@ _SQL_TYPE = {
 
 
 def _tables(onto: Ontology) -> list[tuple[str, str, list[tuple[str, str, bool]]]]:
-    """(entity, table, [(column, sql type, required)]) for every entity that declares a table."""
+    """(entity, table, [(column, sql type, required)]) for every entity that declares a table.
+
+    Columns come from the engine's effective properties — own plus everything inherited along ⪯
+    — because that is what the reader asks for. Built from an entity's own declarations instead,
+    bulky_products got one column: BulkyProduct redeclares weight_g and inherits product_id,
+    category and volume_cm3 from Product. The API then selected four columns from a table with
+    one and every supply endpoint failed.
+
+    The failure is worth naming rather than just fixing. Two places computed "the attributes of
+    this entity" and computed it differently, which is the inconsistency an ontology exists to
+    remove; the fix is not a longer list here but a single answer both sides read.
+    """
+    engine = OntologyEngine(onto)
     out = []
-    for e in onto.entities.values():
-        if not e.backing:
+    for name in engine.entity_types():
+        table = engine.backing_of(name)
+        if not table:
             continue
-        cols = [(p.name, _SQL_TYPE[p.base_type], p.required) for p in e.properties]
-        out.append((e.name, e.backing, cols))
+        props = engine.properties_of(name)
+        cols = [
+            (n, _SQL_TYPE[props[n].base_type], props[n].required) for n in sorted(props)
+        ]
+        out.append((name, table, cols))
     return out
 
 
@@ -111,25 +128,63 @@ def load(dsn: str) -> None:
             note = f"  (ignored {', '.join(sorted(extra))})" if extra else ""
             print(f"{entity:14s} -> {table:16s} {len(rows):>6,} rows{note}")
 
+    _verify(dsn, onto)
+
+
+def _verify(dsn: str, onto: Ontology) -> None:
+    """Run the query the API will run, against every table just created.
+
+    Loading and reading each decide for themselves what an entity's attributes are, and the
+    first time they disagreed nothing noticed: bulky_products was created with one column and
+    the API asked it for four, so every supply endpoint failed with a database error while the
+    load had reported six tables and sixteen thousand rows. A load that reports success for a
+    schema no query can use has reported the wrong thing.
+    """
+    import psycopg
+    from loka_adapters.sql_planner import plan_select
+
+    engine = OntologyEngine(onto)
+    failures: list[str] = []
+    with psycopg.connect(dsn) as conn:
+        for name in engine.entity_types():
+            table = engine.backing_of(name)
+            if not table:
+                continue
+            sql, params = plan_select(table, sorted(engine.properties_of(name)), limit=1)
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(sql, params)
+                    cur.fetchall()
+            except Exception as exc:  # noqa: BLE001 - reported per table, not raised on the first
+                conn.rollback()
+                failures.append(f"{name}: {str(exc).strip().splitlines()[0]}")
+
+    if failures:
+        raise SystemExit(
+            "the tables were created, but the query the API issues does not run against them:\n"
+            + "\n".join(f"  {f}" for f in failures)
+        )
+    print("\nevery entity answers the query the API will issue for it.")
+
 
 def check(dsn: str) -> None:
     """Plan a query the way the API does, run it, and show every step."""
     import psycopg
     from loka_adapters.sql_planner import plan_select
 
-    onto = load_ontology(ONTOLOGY)
-    seller = onto.entities["Seller"]
-    columns = [p.name for p in seller.properties]
+    engine = OntologyEngine(load_ontology(ONTOLOGY))
+    backing = engine.backing_of("Seller")
+    columns = sorted(engine.properties_of("Seller"))
 
     sql, params = plan_select(
-        seller.backing,
+        backing,
         columns,
         filters={"seller_state": "SP"},
         ranges=[("on_time_rate", "<", 0.8)],
         limit=5,
     )
     print("entity      : Seller")
-    print(f"backing     : {seller.backing}          (declared in Ω, not chosen here)")
+    print(f"backing     : {backing}          (declared in Ω, not chosen here)")
     print(f"columns     : {', '.join(columns)}")
     print(f"\nsql         : {sql}")
     print(f"parameters  : {params}\n")
