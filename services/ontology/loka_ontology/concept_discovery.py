@@ -143,6 +143,44 @@ class ConceptDiscovery:
         }
 
 
+def _concepts_in(
+    item: dict[str, Any], cluster: tuple[str, ...]
+) -> list[tuple[str, tuple[str, ...]]]:
+    """(name, phrases) per concept named from one cluster, in three reply shapes.
+
+    Which phrases belong to which concept is the part that matters, and it was missing at first:
+    every concept split out of a cluster was given the whole cluster's phrases, so three
+    concepts arrived at the merge step carrying identical evidence and it judged them the same
+    thing — correctly, from what it could see. Splitting a cluster without dividing its phrases
+    replaces one failure with another.
+
+    Phrases are kept only if the cluster actually holds them. A phrase invented here would be
+    evidence that cites nothing, which the grounding check would report as a concept absent from
+    the source — an accusation against the model for something this parser did.
+    """
+    raw = item.get("concepts")
+    if isinstance(raw, list) and raw and isinstance(raw[0], dict):
+        out = []
+        for entry in raw:
+            name = re.sub(r"[^A-Za-z0-9]", "", str(entry.get("name") or ""))
+            phrases = tuple(
+                p for p in (entry.get("phrases") or []) if isinstance(p, str) and p in cluster
+            )
+            if name:
+                out.append((name, phrases))
+        return out
+
+    # Older shapes, kept because a reply is not a contract: a list of bare names, or one name.
+    names = item.get("names") if isinstance(item.get("names"), list) else None
+    if names is None:
+        names = [item["name"]] if item.get("name") else []
+    return [
+        (cleaned, ())
+        for n in names
+        if (cleaned := re.sub(r"[^A-Za-z0-9]", "", str(n or "")))
+    ]
+
+
 def _require(module: str, hint: str) -> Any:
     try:
         return __import__(module)
@@ -251,14 +289,28 @@ class ClusterNamer:
 
     NAME = (
         "You are naming concepts for a domain ontology in the {domain} domain. Each group below "
-        "is a set of phrases taken from one document. For each group, give the entity type the "
-        "phrases are instances or aspects of. Use the domain's own naming style, CamelCase, "
-        "singular.\n"
-        "If a group is not about the {domain} domain, or is too mixed to name, return null for "
-        'it. Reply with ONLY JSON: {{"names": [{{"group": <index>, "name": <CamelCase|null>}}]}}. '
-        "No prose, no code fences.\n\n"
-        "Example — group ['cat', 'dog', 'horse'] is named Animal; group ['apple', 'orange'] is "
-        "named Fruit; group ['very', 'quite'] is not a concept and is named null."
+        "is a set of phrases taken from one document. Give the entity types the phrases are "
+        "instances or aspects of. Use the domain's own naming style, CamelCase, singular.\n"
+        "A group may hold more than one concept — clustering put the phrases together by "
+        "similarity, which is not the same as their being one kind of thing. When it does, name "
+        "every concept in it, and say which phrases belong to which. Do not choose one and drop "
+        "the rest. Every phrase you assign must come from that group; a phrase that belongs to "
+        "none of the concepts you name is left out.\n"
+        "Return an empty list for a group that names nothing: phrases too mixed to be one kind "
+        "of thing, or about the document rather than the domain. That this is a briefing or a "
+        "manual, who wrote it and who it is for are not part of the {domain} domain.\n"
+        "Give a short reason for each group, in `why`. A group you cannot write a reason for is "
+        "one to return empty.\n"
+        'Reply with ONLY JSON: {{"names": [{{"group": <index>, "concepts": '
+        '[{{"name": <CamelCase>, "phrases": [<phrase from this group>, ...]}}, ...], '
+        '"why": <one short line>}}]}}. No prose, no code fences.\n\n'
+        "Examples — ['cat', 'dog', 'horse'] gives one concept, Animal, holding all three. "
+        "['shopper', 'business', 'marketplace', 'online marketplace'] gives two: Shopper from "
+        "['shopper'], and Marketplace from ['marketplace', 'online marketplace'] — a buyer and "
+        "the platform they buy through are two kinds of thing that happen to be discussed "
+        "together, and 'business' belongs to neither. "
+        "['last part', 'part', 'fact', 'case'] gives none: these are ways of referring to parts "
+        "of the text, not kinds of thing the domain has."
     )
     MERGE = (
         "These are named concepts from one document, each with the phrases it was named from. "
@@ -327,19 +379,27 @@ class ClusterNamer:
         for item in obj.get("names", []):
             if not isinstance(item, dict):
                 continue
-            index, name = item.get("group"), item.get("name")
-            if not isinstance(index, int) or not (0 <= index < len(clusters)) or not name:
+            index = item.get("group")
+            if not isinstance(index, int) or not (0 <= index < len(clusters)):
                 continue
-            terms = tuple(clusters[index])
-            best = max(terms, key=lambda t: counts.get(t, 0))
-            named.append(
-                Concept(
-                    name=re.sub(r"[^A-Za-z0-9]", "", str(name)),
-                    terms=terms,
-                    occurrences=sum(counts.get(t, 0) for t in terms),
-                    evidence=best,
+
+            # A group may name more than one concept. Clustering groups phrases by similarity,
+            # which is not the same as their being one kind of thing: on this document it put
+            # 'shopper' with 'marketplace', and a reply shaped to hold one name per group could
+            # only answer Marketplace. The buyer then vanished from the ontology, and nothing
+            # reported it — not the checklist, not the grounding list. An answer that cannot
+            # express the case does not fail, it silently picks.
+            cluster = tuple(clusters[index])
+            for name, phrases in _concepts_in(item, cluster):
+                terms = phrases or cluster
+                named.append(
+                    Concept(
+                        name=name,
+                        terms=terms,
+                        occurrences=sum(counts.get(t, 0) for t in terms),
+                        evidence=max(terms, key=lambda t: counts.get(t, 0)),
+                    )
                 )
-            )
         return [c for c in named if c.name]
 
     def merge(self, concepts: Sequence[Concept]) -> tuple[list[Concept], list[tuple[str, ...]]]:

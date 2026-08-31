@@ -9,6 +9,7 @@ The natural-language front end (NL → q*) is in loka_grounding; /compile takes 
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
@@ -41,6 +42,46 @@ _EXTRACTION_METHODS = {
         "named by the model"
     ),
 }
+
+
+def _mixed_cluster_items(provenance: dict[str, Any]) -> list[dict[str, Any]]:
+    """Review items for concepts named from phrases that do not obviously belong to them.
+
+    Concept discovery names a cluster of phrases; a cluster can hold more than one kind of
+    thing, and on this document one held 'shopper' alongside 'marketplace'. Whatever the naming
+    step decides, the reviewer is shown a name and never sees what went into it — so a phrase
+    absorbed into the wrong concept leaves no trace anywhere: not in the checklist, not in the
+    grounding list, nowhere. The only way to find it is to reread the source.
+
+    Flagged is the phrase that shares no word with the name it was filed under. 'independent
+    seller' under Seller is the expected case and says nothing; 'shopper' under Marketplace is
+    the question worth putting in front of someone.
+    """
+    concepts = (provenance.get("discovery") or {}).get("concepts") or []
+    items: list[dict[str, Any]] = []
+    for concept in concepts:
+        name = str(concept.get("name") or "")
+        if not name:
+            continue
+        own = set(re.findall(r"[a-z]+", re.sub(r"(?<=[a-z])(?=[A-Z])", " ", name).lower()))
+        unrelated = [
+            term
+            for term in concept.get("terms") or []
+            if not own & set(re.findall(r"[a-z]+", str(term).lower()))
+        ]
+        if unrelated:
+            items.append({
+                "kind": "mixed_cluster",
+                "target": name,
+                "detail": (
+                    f"{name} was named from phrases that include "
+                    f"{', '.join(repr(t) for t in unrelated[:8])}"
+                    f"{' and others' if len(unrelated) > 8 else ''}, which share no word with "
+                    "it. Confirm these are the same kind of thing and not several filed under "
+                    "one name — a concept absorbed here is not recorded anywhere else."
+                ),
+            })
+    return items
 
 
 class BuildKBRequest(BaseModel):
@@ -458,6 +499,8 @@ def create_app(world: World | None = None) -> FastAPI:
                     "or it may be a concept the model supplied from elsewhere — confirm which."
                 ),
             })
+        for item in _mixed_cluster_items(provenance):
+            rec.review.insert(0, item)
         app.state.kb_worlds[kb_id].ontology_id = rec.ontology_id
 
         out: dict[str, Any] = jsonable_encoder(spec)
