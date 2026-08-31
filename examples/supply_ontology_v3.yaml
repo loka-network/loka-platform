@@ -1,0 +1,150 @@
+# supply-v2, written in the verb-signature syntax.
+#
+# The same ontology as supply_ontology.yaml, in the notation the review asked for:
+#
+#   entities        two relations only — `is` (subtyping) and `has` (attributes)
+#   verbs           verb(subject: T, object: T, complement: T ...)
+#                   a verb that carries `via` IS a relation; there is no separate relation set
+#   predicates      state predicates over attributes — what the review calls constraints
+#   norms           May / Must / Forbidden over a verb application
+#
+# Nothing is dropped: the traversal key (`via`), cardinality (`each`), guards, effects and the
+# controllable/uncontrollable split all survive as parts of a verb rather than as separate
+# primitives. This file loads through verb_syntax.py into exactly the same Ontology object as
+# supply_ontology.yaml — scripts/check_syntax_equivalence.py asserts that.
+version: supply-v2
+
+# ── E: entities carry attributes (`has`) and a subtype relation (`is`) ──────────────────
+entities:
+
+  Seller:
+    has:
+      seller_id:       {type: string,  required: true, doc: "identity key"}
+      seller_state:    {type: string,  doc: "two-letter Brazilian state code"}
+      on_time_rate:    {type: double,  doc: "share of this seller's delivered orders that arrived by the promised date, 0-1"}
+      delivered_lines: {type: integer, doc: "how many delivered orders on_time_rate was computed over — its denominator, so a rate can be told apart from a rate worth acting on"}
+
+  Product:
+    has:
+      product_id:  {type: string, required: true, doc: "identity key"}
+      weight_g:    {type: double, doc: "shipping weight in grams"}
+      volume_cm3:  {type: double, doc: "length x height x width, in cubic centimetres"}
+      category:    {type: string, doc: "product category label"}
+
+  # A subtype whose only job is to change what is permitted: an over-spec item cannot ship on
+  # the standard service. Eligibility follows from `is` plus the verb's guard, not from code.
+  BulkyProduct:
+    is: Product
+    has:
+      weight_g: {type: double, doc: "shipping weight in grams; above the standard-service limit declared by the ShipStandard guard"}
+
+  OrderItem:
+    has:
+      item_id:       {type: string, required: true, doc: "identity key (order_id + line number)"}
+      order_id:      {type: string, doc: "link to Order (traversed by verb contains)"}
+      product_id:    {type: string, doc: "link to Product (traversed by verb of_product)"}
+      seller_id:     {type: string, doc: "link to Seller (traversed by verb fulfilled_by)"}
+      freight_value: {type: double, doc: "freight charged on this line, in BRL"}
+      price:         {type: double, doc: "item price, in BRL"}
+
+  Order:
+    has:
+      order_id:    {type: string, required: true, doc: "identity key"}
+      customer_id: {type: string, doc: "link to Customer (traversed by verb placed_by)"}
+      days_late:   {type: double, doc: "delivered date minus promised date, in days; negative is early"}
+      status:      {type: string, doc: "order status as recorded by the marketplace"}
+
+  Customer:
+    has:
+      customer_id:    {type: string, required: true, doc: "identity key"}
+      customer_state: {type: string, doc: "two-letter Brazilian state code"}
+
+# ── V: verbs. A verb with `via` is a relation; a verb with a guard or effect is an action. ──
+#
+# `act`         factual | communicative | institutional
+# `via`         the attribute the link is walked by — present only on relational verbs
+# `each`        cardinality of the subject→object mapping
+# `as`          the action's name, when it differs from the verb (see the note on strike below)
+# `controllable` false marks an act of the environment: modelled, never proposed
+verbs:
+
+  # Relational verbs — these replace the former `relations:` block.
+  - sig:  "contains(subject: Order, object: OrderItem)"
+    act:  factual
+    via:  order_id
+    each: one_to_many
+
+  - sig:  "of_product(subject: OrderItem, object: Product)"
+    act:  factual
+    via:  product_id
+    each: many_to_one
+
+  - sig:  "fulfilled_by(subject: OrderItem, object: Seller)"
+    act:  factual
+    via:  seller_id
+    each: many_to_one
+
+  - sig:  "placed_by(subject: Order, object: Customer)"
+    act:  factual
+    via:  customer_id
+    each: many_to_one
+
+  # Acting verbs — these replace the former `actions:` and `constraints:` blocks. The subject
+  # and object types in the signature are what `constraints:` used to state separately.
+  - sig:    "ship_standard(subject: Seller, object: Product)"
+    act:    factual
+    as:     ShipStandard
+    guard:  "weight_g <= 10000"
+    effect: "the product is dispatched on the standard service"
+
+  # The complement is what the review's notation is for: this act is done *to* a customer and
+  # *about* an order, and the condition for doing it belongs to the order. Written without it,
+  # the guard was read against a Customer, which declares no such attribute, so the act was
+  # never proposed and nothing said why.
+  - sig:    "notify_delay(subject: Seller, object: Customer, complement: Order)"
+    act:    communicative
+    as:     NotifyDelay
+    guard:  "days_late >= 1"
+    effect: "the customer is told the order is late and given a revised date"
+
+  - sig:    "suspend_seller(subject: Seller, object: Seller)"
+    act:    institutional
+    as:     SuspendSeller
+    guard:  "on_time_rate < 0.8"
+    effect: "the seller is suspended from the marketplace pending review"
+
+  # The environment's half. Carriers strike; nobody here decides it. Declared so its effect can
+  # be reasoned about, and it can never be proposed or governed by a norm.
+  #
+  # NOTE: in the previous notation this shared the verb SHIP_STANDARD with ShipStandard. A verb
+  # signature cannot carry two different acts, so `as:` names the action separately. This is the
+  # one place where the new syntax needed an escape hatch — see the report.
+  - sig:          "ship_standard(subject: Seller, object: Product)"
+    act:          factual
+    as:           CarrierStrike
+    controllable: false
+    effect:       "the carrier stops accepting shipments in the affected region"
+
+# ── State predicates over attributes — what the review calls constraints. ───────────────
+predicates:
+  - "late_delivery(o)   := days_late >= 3"
+  - "thin_evidence(s)   := delivered_lines < 20"
+
+# ── N: modalities over a verb application. ─────────────────────────────────────────────
+norms:
+
+  - rule: "Must(notify_delay(s, c)) when late_delivery(o)"
+    name: LateOrdersMustBeDisclosed
+    why: >
+      Consumer law obliges the marketplace to disclose a material delay. Without a mandatory
+      status the system could only record that notifying is allowed — it could never report that
+      staying silent is a violation, which is the case that matters.
+
+  - rule: "Forbidden(suspend_seller(s, x)) when thin_evidence(x)"
+    name: NoSuspensionOnThinEvidence
+    why: >
+      on_time_rate over a handful of orders is mostly noise: one late delivery out of three puts
+      a seller under the 0.8 guard on evidence that would not survive a second sample. The guard
+      is about the mechanism — is this seller's rate low — and it works correctly here. Whether
+      it is legitimate to end someone's livelihood on that much evidence is a different question,
+      and that is the one a norm answers.
