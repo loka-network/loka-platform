@@ -109,12 +109,14 @@ def _formalize(world: World, question: str, *, query_id: str) -> tuple[TypedQuer
         q = TypedQuery(query_id=query_id, task_type="descriptive", targets=targets, signature=None)
         return q, "fallback (grounding pkg absent)"
 
-    proposer, mode = _make_proposer(entity_types)
+    proposer, mode = _make_proposer(entity_types, _attributes(world))
     q_star: TypedQuery = ground(question, proposer, world.engine, query_id=query_id)
     return q_star, f"real ({mode})"
 
 
-def _make_proposer(entity_types: list[str]) -> tuple[QueryProposer, str]:
+def _make_proposer(
+    entity_types: list[str], attributes: list[str]
+) -> tuple[QueryProposer, str]:
     """Pick the grounding proposer: LLM when opted in and available, else keyword reference."""
     import os
 
@@ -136,10 +138,25 @@ def _make_proposer(entity_types: list[str]) -> tuple[QueryProposer, str]:
             # one is a downgrade they need to see: a silent switch would make a run that used a
             # different proposer indistinguishable from one that used the requested one.
             return (
-                KeywordProposer(entity_types=entity_types),
+                KeywordProposer(entity_types=entity_types, attributes=attributes),
                 f"keyword (LLM proposer requested but unavailable: {type(exc).__name__}: {exc})",
             )
-    return KeywordProposer(entity_types=entity_types), "keyword"
+    return KeywordProposer(entity_types=entity_types, attributes=attributes), "keyword"
+
+
+def _attributes(world: World) -> list[str]:
+    """Every attribute name the ontology declares, across all its types.
+
+    Given to the proposer so a question naming one can say which. The binder then checks it
+    against the types the question is *about*, which is the narrower question and the one that
+    matters: an ontology declaring `weight` does not make it answerable of a Seller.
+    """
+    names: set[str] = set()
+    for entity in _entity_types(world):
+        getter = getattr(world.engine, "properties_of", None)
+        if callable(getter):
+            names.update(getter(entity))
+    return sorted(names)
 
 
 def _entity_types(world: World) -> list[str]:

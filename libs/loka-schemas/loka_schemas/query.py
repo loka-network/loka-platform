@@ -17,4 +17,8 @@ class TypedQuery:
     query_id: str
     task_type: str  # e.g. "conditional_forecast", "counterfactual", ...
     targets: tuple[str, ...]  # ontology entity types the question is about
+    #: The attributes the question asked for, validated against the targets that declare
+    #: them. Empty means the question named none, which is not the same as naming one that
+    #: does not exist — that is refused at binding and never reaches here.
+    attributes: tuple[str, ...] = ()
     signature: str | None = None

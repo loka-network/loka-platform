@@ -20,6 +20,16 @@ from pydantic import BaseModel
 
 from .world import World, build_supply_world, build_world_from_env
 
+#: Which refusal a grounding failure is. The names are the binder's exception classes, so a
+#: new failure mode surfaces as an unmapped name rather than being quietly folded into an
+#: existing code.
+_REFUSAL_CODES = {
+    "UnknownTarget": "unknown_entity",
+    "UnknownAttribute": "not_in_ontology",
+    "EmptyProposal": "unformalizable",
+    "UnknownTaskType": "unformalizable",
+}
+
 
 class CompileRequest(BaseModel):
     """A typed query q* posted to /compile."""
@@ -1060,9 +1070,32 @@ def create_app(world: World | None = None) -> FastAPI:
                     ),
                 )
         try:
+            from loka_grounding import GroundingError
+        except Exception:  # noqa: BLE001 - grounding is optional; without it nothing raises these
+            GroundingError = ()  # type: ignore[assignment]
+
+        try:
             return answer(w, req.question, query_id=req.query_id)
         except CompileError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except GroundingError as exc:
+            # A refusal, and it carries which kind. A question naming an entity this ontology
+            # does not describe and one naming an attribute it does not declare are different
+            # failures with different remedies, and a caller acts on the difference — so they
+            # are not collapsed into a 400 with a message to parse.
+            return {
+                "query_id": req.query_id,
+                "question": req.question,
+                "answer": "don't know",
+                "reason": str(exc),
+                "reason_code": _REFUSAL_CODES.get(type(exc).__name__, "unformalizable"),
+                "ontology_version": getattr(w.engine, "version", None),
+                "speech_act": {
+                    "act": "unformalizable",
+                    "query": None,
+                    "response": 'informs(loka, user, "don\'t know")',
+                },
+            }
 
     @app.post("/compile-ontology")
     def compile_ontology_endpoint(req: OntologyCompileRequest) -> dict[str, Any]:

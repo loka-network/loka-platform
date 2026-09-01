@@ -26,6 +26,8 @@ class QueryProposal:
 
     task_type: str
     targets: tuple[str, ...]
+    #: Attribute names the question appears to ask for. Unvalidated, like ``targets``.
+    attributes: tuple[str, ...] = ()
     rationale: str = ""
     unresolved: tuple[str, ...] = field(default_factory=tuple)  # names the proposer couldn't map
 
@@ -44,3 +46,13 @@ class UnknownTaskType(GroundingError):
 
 class UnknownTarget(GroundingError):
     """A proposed target does not resolve to a known ontology entity type."""
+
+
+class UnknownAttribute(GroundingError):
+    """A proposed attribute is declared by none of the target entity types.
+
+    Distinct from :class:`UnknownTarget` because the remedy differs and a caller acts on the
+    difference: an unknown target means the question is about something this ontology does not
+    describe; an unknown attribute means it is about something the ontology describes, asked
+    for in terms it does not declare.
+    """

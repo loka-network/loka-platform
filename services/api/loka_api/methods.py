@@ -65,8 +65,15 @@ def resolve(q_star: TypedQuery, wqt: ScenarioWorldModel) -> dict[str, Any]:
     """Route q* to KB.DATA (asks) or KB.METHODS (orders) and return a structured result."""
     act, kind, method_name = _ACT_BY_TASK.get(q_star.task_type, ("asks", "data", None))
     if kind == "data":
-        # asks -> retrieve(d from KB.DATA): the state slice already bound into W(q,t)
+        # asks -> retrieve(d from KB.DATA): the state slice already bound into W(q,t), narrowed
+        # to the attributes the question asked for. Returning the whole slice answers a question
+        # nobody asked: 1,121 sellers times four attributes is 4,484 values in reply to "what is
+        # this seller's on-time rate". The attributes are validated at binding, so narrowing on
+        # them cannot silently drop a value the ontology declares.
         facts = dict(wqt.state_package.state_slice)
+        wanted = tuple(getattr(q_star, "attributes", ()) or ())
+        if wanted:
+            facts = {k: v for k, v in facts.items() if k.rsplit(".", 1)[-1] in wanted}
         return {"act": act, "kind": kind, "method": None, "facts": facts}
     # orders -> retrieve(m from KB.METHODS); apply
     entry = _REGISTRY.get(method_name or "")

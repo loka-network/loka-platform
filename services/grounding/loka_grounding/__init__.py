@@ -11,6 +11,7 @@ from .models import (
     EmptyProposal,
     GroundingError,
     QueryProposal,
+    UnknownAttribute,
     UnknownTarget,
     UnknownTaskType,
 )
@@ -27,4 +28,5 @@ __all__ = [
     "EmptyProposal",
     "UnknownTaskType",
     "UnknownTarget",
+    "UnknownAttribute",
 ]

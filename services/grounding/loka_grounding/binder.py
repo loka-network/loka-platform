@@ -10,7 +10,14 @@ from __future__ import annotations
 
 from loka_schemas import OntologyView, TypedQuery
 
-from .models import TASK_TYPES, EmptyProposal, QueryProposal, UnknownTarget, UnknownTaskType
+from .models import (
+    TASK_TYPES,
+    EmptyProposal,
+    QueryProposal,
+    UnknownAttribute,
+    UnknownTarget,
+    UnknownTaskType,
+)
 from .proposer import QueryProposer
 
 
@@ -35,10 +42,27 @@ def bind(
     unknown = [t for t in proposal.targets if not ontology.has_entity(t)]
     if unknown:
         raise UnknownTarget(f"targets not in ontology {ontology.version}: {unknown}")
+
+    # An attribute is checked against the types the question is about, not against the ontology
+    # at large. Asking a Seller for a Product's weight is a question this ontology cannot answer
+    # even though it declares `weight`, and a check that looked everywhere would let it through.
+    declared: dict[str, list[str]] = {}
+    for target in proposal.targets:
+        for name in ontology.properties_of(target):
+            declared.setdefault(name, []).append(target)
+    undeclared = [a for a in proposal.attributes if a not in declared]
+    if undeclared:
+        raise UnknownAttribute(
+            f"{sorted(undeclared)} not declared by "
+            f"{list(proposal.targets)} in ontology {ontology.version}; "
+            f"declared: {sorted(declared)}"
+        )
+
     return TypedQuery(
         query_id=query_id,
         task_type=proposal.task_type,
         targets=proposal.targets,
+        attributes=proposal.attributes,
         signature=signature,
     )
 

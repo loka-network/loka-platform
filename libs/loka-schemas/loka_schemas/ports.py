@@ -7,7 +7,7 @@ backend (Neo4j causal graph, Postgres-backed state, ...) without touching consum
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime
 from typing import Protocol, runtime_checkable
 
@@ -22,6 +22,11 @@ class OntologyView(Protocol):
     def version(self) -> str: ...
 
     def has_entity(self, name: str) -> bool: ...
+
+    #: The attributes an entity type has, its own and those inherited. Part of the port because
+    #: binding a question needs it: an attribute the ontology does not declare has to be refused
+    #: before anything runs, and a view that cannot answer this cannot refuse it.
+    def properties_of(self, entity_type: str) -> Mapping[str, object]: ...
 
 
 @runtime_checkable

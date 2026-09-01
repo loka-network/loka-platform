@@ -26,8 +26,16 @@ class FakeOntology:
         {"Funder", "Grant", "Program", "Region", "BeneficiaryGroup", "Outcome", "ExternalFactor"}
     )
 
+    #: Attributes per entity type. A view that cannot answer this cannot refuse a question
+    #: asking for an attribute the ontology does not declare, so the port requires it and the
+    #: double provides it rather than being exempt from the check under test.
+    _properties = {"Grant": {"amount": None, "awarded_on": None}, "Region": {"name": None}}
+
     def has_entity(self, name: str) -> bool:
         return name in self._entities
+
+    def properties_of(self, entity_type: str) -> dict[str, object]:
+        return dict(self._properties.get(entity_type, {}))
 
 
 SYNONYMS = {"funding": "Grant", "project": "Program", "country": "Region", "result": "Outcome"}
