@@ -136,6 +136,16 @@ class BuildKBRequest(BaseModel):
     background: bool = False
 
 
+class ReachRequest(BaseModel):
+    """Walk from the rows a filter selects to another entity type, along the declared route."""
+
+    from_type: str
+    to_type: str
+    #: Equality filters on the starting type, checked against what the ontology declares for it.
+    where: dict[str, Any] = {}
+    limit: int = 20
+
+
 class IngestRequest(BaseModel):
     """Data rows and causal claims to fill a built KB's DATA/METHODS needs."""
 
@@ -784,6 +794,64 @@ def create_app(world: World | None = None) -> FastAPI:
             "route": [f"{r.name}{'>' if fwd else '<'}(via {r.via})" for r, fwd in path],
             "requires_narrowing": narrowing,
             "traversable": all(r.via for r, _ in path),
+        }
+
+    @app.post("/supply/reach")
+    def supply_reach(req: ReachRequest) -> dict[str, Any]:
+        """Walk the route Ω declares, from the rows a filter selects, and return what is reached.
+
+        The cross-table question, answered without a join. ``/supply/route`` says which way to
+        go; this goes. The route is derived from the declared verbs and walked with the fields
+        they declare, so changing the ontology changes both — and no key is written here.
+
+        The capability existed and was reachable only from inside the impact endpoint, which
+        meant that over HTTP the question could not be asked at all. A filter on the starting
+        type is included because the interesting form of the question always has one: not every
+        product a seller sells, but every bulky one sold by a seller in this state.
+        """
+        eng = _supply_or_503()
+        for name in (req.from_type, req.to_type):
+            if not eng.has_entity(name):
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"'{name}' is not an entity in ontology {eng.version}",
+                )
+        # The filter is checked against what Ω declares for the starting type, for the same
+        # reason a query is: a filter on an attribute that does not exist would select nothing
+        # and read as an empty answer rather than as a question that could not be asked.
+        declared = set(eng.properties_of(req.from_type))
+        unknown = sorted(set(req.where) - declared)
+        if unknown:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"{unknown} not declared by {req.from_type} in ontology {eng.version}; "
+                    f"declared: {sorted(declared)}"
+                ),
+            )
+
+        from loka_ontology.traverse import reach
+
+        dataset = load_supply_dataset(eng)
+        start = [
+            row
+            for row in dataset.get(req.from_type, [])
+            if all(str(row.get(k)) == str(v) for k, v in req.where.items())
+        ]
+        out = reach(
+            eng, dataset, from_type=req.from_type, to_type=req.to_type, start=start
+        )
+        rows = out.get("rows") or []
+        return {
+            "ontology_version": eng.version,
+            "from": {"type": req.from_type, "where": req.where, "matched": len(start)},
+            "to": req.to_type,
+            "hops": out.get("hops"),
+            "route": out.get("route"),
+            "reason": out.get("reason"),
+            "reached": len(rows),
+            "rows": rows[: req.limit],
+            "truncated": len(rows) > req.limit,
         }
 
     @app.post("/supply/impact")
