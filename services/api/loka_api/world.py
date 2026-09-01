@@ -244,10 +244,24 @@ def _identity_attribute(engine: Any, entity: str) -> str | None:
 
 
 def _supply_ontology_path() -> str:
+    """The committed ontology, found relative to this file or to the working directory.
+
+    Both, because they are different deployments. Running from a checkout, the file sits a few
+    directories above this one. Installed — which is what the image does — this module lives in
+    site-packages and no number of parent directories reaches the repository; there the working
+    directory is where the ontology is. The first version walked upward only, so the supply
+    world silently failed to register in the image while working everywhere it was tested.
+    """
     here = os.path.dirname(os.path.abspath(__file__))
-    for _ in range(6):
-        candidate = os.path.join(here, "examples", "supply_ontology.yaml")
+    candidates = [
+        os.path.join(here, *([".."] * n), "examples", "supply_ontology.yaml")
+        for n in range(1, 6)
+    ]
+    candidates.append(os.path.join(os.getcwd(), "examples", "supply_ontology.yaml"))
+    for candidate in candidates:
         if os.path.exists(candidate):
             return candidate
-        here = os.path.dirname(here)
-    raise FileNotFoundError("examples/supply_ontology.yaml not found")
+    raise FileNotFoundError(
+        "examples/supply_ontology.yaml not found, relative to this module or the working "
+        f"directory ({os.getcwd()})"
+    )
