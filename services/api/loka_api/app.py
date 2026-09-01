@@ -38,6 +38,8 @@ class CompileRequest(BaseModel):
     task_type: str
     targets: list[str]
     signature: str | None = None
+    #: Which registered world to compile against. Omitted, the default world.
+    kb_id: str | None = None
 
 
 #: One line per paradigm, recorded on the draft so two extractions of one document can be told
@@ -349,7 +351,14 @@ def create_app(world: World | None = None) -> FastAPI:
 
     @app.post("/compile")
     def compile_endpoint(req: CompileRequest) -> dict[str, object]:
+        # The model-free entry has to reach the same ontologies the other entries do. Bound to
+        # the default world it could only compile against that one, so the path this document
+        # describes as bypassing the model could not be used for the domain the document uses.
         w: World = app.state.world
+        if req.kb_id is not None:
+            w = app.state.kb_worlds.get(req.kb_id)
+            if w is None:
+                raise HTTPException(status_code=404, detail=f"unknown kb_id: {req.kb_id}")
         query = TypedQuery(
             query_id=req.query_id,
             task_type=req.task_type,
@@ -1137,13 +1146,36 @@ def create_app(world: World | None = None) -> FastAPI:
                         f"GET /ontology/{oid}, PUT the reviewed YAML, then POST .../publish."
                     ),
                 )
+        def _no_data(result: dict[str, Any]) -> dict[str, Any]:
+            """An attribute the ontology declares, for which the store holds nothing.
+
+            Returned as a refusal rather than an empty result. `facts: {}` is the shape of an
+            answer, and reads as one — a caller cannot tell it from a question whose answer
+            happens to be nothing, and the two call for different actions.
+            """
+            retrieval = result.get("retrieval") or {}
+            asked = (result.get("formalized_query") or {}).get("attributes") or []
+            if retrieval.get("kind") != "data" or retrieval.get("facts") or not asked:
+                return result
+            targets = (result.get("formalized_query") or {}).get("targets") or []
+            return {
+                **result,
+                "answer": "don't know",
+                "reason": (
+                    f"{sorted(asked)} is declared by {targets} in ontology "
+                    f"{getattr(w.engine, 'version', '?')}, and the knowledge base holds no "
+                    "value for it"
+                ),
+                "reason_code": "no_data",
+            }
+
         try:
             from loka_grounding import GroundingError
         except Exception:  # noqa: BLE001 - grounding is optional; without it nothing raises these
             GroundingError = ()  # type: ignore[assignment]
 
         try:
-            return answer(w, req.question, query_id=req.query_id)
+            return _no_data(answer(w, req.question, query_id=req.query_id))
         except CompileError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except GroundingError as exc:
