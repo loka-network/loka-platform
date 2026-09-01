@@ -14,8 +14,9 @@ import asyncio
 import os
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Any
 
-from loka_ontology import OntologyEngine, load_ontology_str
+from loka_ontology import OntologyEngine, load_ontology, load_ontology_str
 from loka_schemas import (
     CausalClaim,
     CausalLayer,
@@ -192,3 +193,61 @@ async def _ingest_gdp(state: WorldState, adapter: MemoryAdapter, engine: Ontolog
     session = await adapter.authenticate(Certificate(subject="api", scopes=frozenset({"GDP"})))
     predicate = TypedPredicate("GDP", columns=tuple(sorted(engine.properties_of("GDP"))))
     await state.ingest_from(adapter, predicate, session)
+
+
+def build_supply_world() -> World:
+    """The supply-chain ontology as a queryable world, with its rows in state.
+
+    The query path is not tied to a domain: ``_formalize`` reads the entity types off
+    ``world.engine`` and the binder validates a proposal against that same ontology, so a
+    question is answered against whatever ontology the world carries. What was missing was not
+    generality but registration — the supply ontology existed only behind its own endpoints, so
+    nothing could ask it a question in natural language and the query chapter had to draw its
+    examples from a different domain.
+
+    State variables are named ``<EntityType>.<id>.<field>``, which is the form ``WorldState``
+    slices on. The identifier comes from the entity's first required attribute, that being the
+    ontology's own statement of what identifies one of these.
+    """
+    engine = OntologyEngine(load_ontology(_supply_ontology_path()))
+    state = WorldState()
+    now = datetime.now(UTC)
+
+    from .supply import load_supply_dataset
+
+    for entity, rows in load_supply_dataset(engine).items():
+        key = _identity_attribute(engine, entity)
+        if key is None:
+            continue
+        for row in rows:
+            rid = row.get(key)
+            if rid is None:
+                continue
+            for field_name, value in row.items():
+                state.set(f"{entity}.{rid}.{field_name}", value, now)
+
+    return World(
+        engine=engine,
+        state=state,
+        mission=_demo_mission(),
+        causal=None,
+        backend="supply",
+    )
+
+
+def _identity_attribute(engine: Any, entity: str) -> str | None:
+    """The attribute the ontology marks as required — what identifies one of these."""
+    for name, prop in sorted(engine.properties_of(entity).items()):
+        if prop.required:
+            return name
+    return None
+
+
+def _supply_ontology_path() -> str:
+    here = os.path.dirname(os.path.abspath(__file__))
+    for _ in range(6):
+        candidate = os.path.join(here, "examples", "supply_ontology.yaml")
+        if os.path.exists(candidate):
+            return candidate
+        here = os.path.dirname(here)
+    raise FileNotFoundError("examples/supply_ontology.yaml not found")

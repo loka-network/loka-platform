@@ -18,7 +18,7 @@ from loka_compiler import CompileError, compile_wqt
 from loka_schemas import TypedQuery
 from pydantic import BaseModel
 
-from .world import World, build_world_from_env
+from .world import World, build_supply_world, build_world_from_env
 
 
 class CompileRequest(BaseModel):
@@ -269,6 +269,15 @@ def create_app(world: World | None = None) -> FastAPI:
     app = FastAPI(title="Loka Platform API", version="0.0.1")
     app.state.world = world or build_world_from_env()
     app.state.kb_worlds = {}  # kb_id -> World, populated by /build-kb
+    # The supply ontology, registered so a question can be asked of it in natural language.
+    # The query path never was domain-specific — it reads the entity types off whatever engine
+    # the world carries — but this ontology lived only behind its own endpoints, so nothing
+    # could reach it that way. Registering it is the whole of the change; `kb_id: "supply"`
+    # now goes through the same chain as any built knowledge base.
+    try:
+        app.state.kb_worlds["supply"] = build_supply_world()
+    except Exception as exc:  # noqa: BLE001 - a missing dataset must not stop the service
+        print(f"[world] supply world not registered: {exc}")
     app.state.kb = KB()  # KB.DATA / KB.METHODS; grows as queries are answered
 
     from .ontology_store import OntologyRecord, OntologyStore
