@@ -22,12 +22,21 @@ from typing import Any
 from .models import TASK_TYPES, QueryProposal
 
 _SYSTEM = (
-    "You translate a user's economic-decision question into a structured query. "
+    "You translate a user's decision question into a structured query. "
     "Reply with ONLY a JSON object of the form "
     '{"task_type": <one of ' + str(sorted(TASK_TYPES)) + ">, "
-    '"targets": [<ontology entity type names>], "rationale": <short string>}. '
+    '"targets": [<ontology entity type names>], "attributes": [<attribute names>], '
+    '"rationale": <short string>}. '
     "Use ONLY entity-type names from the provided list; if the question mentions something "
-    "not in the list, omit it. Do not wrap the JSON in prose or code fences."
+    "not in the list, omit it. "
+    # Attributes are the opposite instruction, and deliberately so. Constraining targets to the
+    # list keeps a hallucinated entity out; constraining attributes the same way would keep a
+    # question about an attribute the ontology lacks from ever being *refused* — it would come
+    # back naming only the entity, and the answer would be everything else about it. The binder
+    # checks the name against the types the question is about, so the wrong one is caught there.
+    "For attributes, report what the question asks for using the question's own wording, "
+    "whether or not it appears in any list; report none if it asks about the entity in general. "
+    "Do not wrap the JSON in prose or code fences."
 )
 
 
@@ -85,8 +94,12 @@ class LLMProposer:
         )
         data = _parse_json_object(_reply_text(resp))
         targets = data.get("targets", [])
+        attributes = data.get("attributes", [])
         return QueryProposal(
             task_type=str(data.get("task_type", "")),
             targets=tuple(str(t) for t in targets) if isinstance(targets, list) else (),
+            attributes=(
+                tuple(str(a) for a in attributes) if isinstance(attributes, list) else ()
+            ),
             rationale=str(data.get("rationale", "")),
         )
