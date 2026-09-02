@@ -265,3 +265,37 @@ def _supply_ontology_path() -> str:
         "examples/supply_ontology.yaml not found, relative to this module or the working "
         f"directory ({os.getcwd()})"
     )
+
+
+def build_roles_world() -> World:
+    """The three-role contract as a queryable world.
+
+    State is empty by design. Every condition these norms read — a ceiling, a sample size, a
+    statistic — belongs to the run the caller is conducting, and is passed in with the act being
+    checked. A value this service held would be one the caller could not account for, and the
+    whole arrangement turns on numbers being traceable to whoever measured them.
+    """
+    engine = OntologyEngine(load_ontology(_find("roles_ontology.yaml")))
+    return World(
+        engine=engine,
+        state=WorldState(),
+        mission=_demo_mission(),
+        causal=None,
+        backend="roles",
+    )
+
+
+def _find(name: str) -> str:
+    """A committed ontology, found relative to this module or to the working directory."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(here, *([".."] * n), "examples", name) for n in range(1, 6)
+    ]
+    candidates.append(os.path.join(os.getcwd(), "examples", name))
+    for candidate in candidates:
+        if os.path.exists(candidate):
+            return candidate
+    raise FileNotFoundError(
+        f"examples/{name} not found, relative to this module or the working "
+        f"directory ({os.getcwd()})"
+    )

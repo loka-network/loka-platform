@@ -1,0 +1,351 @@
+# roles-v1 — the three-role contract for molecule generation, as an ontology.
+#
+# roles.md is a governance specification: who may say what, under which condition, and what must
+# be reported alongside what. Almost none of it is data modelling. So the weight here falls on
+# the parts of Ω that carry authority — the types a verb's roles admit, and the modalities over
+# verb applications — rather than on entities and attributes.
+#
+# What that buys: a chemist commenting on target relevance is not a rule violation to be caught.
+# There is no signature in which a Chemist can be the subject of judge_target_relevance, so the
+# act cannot be expressed. A rule can be argued with; a missing signature cannot.
+version: roles-v1
+
+# ── E ────────────────────────────────────────────────────────────────────────────────────
+entities:
+
+  Role:
+    has:
+      role_id: {type: string, required: true}
+
+  Biologist:
+    is: Role
+  Chemist:
+    is: Role
+  AIExpert:
+    is: Role
+
+  # A number, and everything that has to travel with it. Discipline three of roles.md — no
+  # invented numbers — is why `source_id` is required: a measurement with no traceable origin is
+  # not a measurement, and the ontology refuses to admit one.
+  Measurement:
+    has:
+      measurement_id: {type: string, required: true}
+      value:          {type: double}
+      #: 1 our own · 2 external experimental · 3 reported by a paper · 4 derived from the above.
+      #: A code rather than a name so a condition can compare it; discipline one turns on being
+      #: able to say "these two classes may not share a table".
+      evidence_class: {type: integer}
+      sample_size:    {type: integer}
+      source_id:      {type: string, required: true}
+      #: Which summary this is: 1 median · 2 mean. Strain energy may only be reported as a
+      #: median — mean and median differ by orders of magnitude and the mean is carried by a few
+      #: pathological molecules.
+      statistic:      {type: integer}
+      #: Which ruler a validity rate was measured with: 1 parses into a legal molecule ·
+      #: 2 bond lengths and angles against crystal statistics. The two differ by an order of
+      #: magnitude and a rate reported without naming its ruler says nothing.
+      ruler:          {type: integer}
+
+  Metric:
+    has:
+      metric_id:   {type: string, required: true}
+      #: 1 if this is the frozen main metric. Its name — interaction profile recovery — is wider
+      #: than what was frozen, which is hydrogen-bond acceptor counts alone.
+      is_main:     {type: integer}
+
+  # A report is what a role hands on, and most of the norms are about what it must carry.
+  Report:
+    has:
+      report_id:            {type: string, required: true}
+      #: Percentage. Above 95 this is a warning, not a result: it means the gate is loose or the
+      #: gate and the data share an origin.
+      ceiling:              {type: double}
+      #: Rows in the size-matched subset. Zero means it was not reported, and the main metric may
+      #: not be reported without it — a full-set mean has already been shown to pick the wrong
+      #: winner by 11 points where the size-matched subset is a draw.
+      size_matched_n:       {type: integer}
+      #: 1 if this report states the frozen main metric.
+      states_main_metric:   {type: integer}
+      #: Pockets actually covered, which is fewer than the frozen protocol names. The intended
+      #: number may not be reported as the actual one.
+      pockets_measured:     {type: integer}
+      pockets_in_protocol:  {type: integer}
+      #: 1 if any table places our own measurements beside numbers reported by a paper.
+      mixes_evidence_classes: {type: integer}
+
+  Hypothesis:
+    has:
+      hypothesis_id: {type: string, required: true}
+      #: Length of the falsification predicate. Zero means there is none, and a hypothesis
+      #: without one is refused rather than filed — roles.md says "为空则拒收".
+      falsifier_len: {type: integer}
+
+  # The screening gate. If it has seen our training data, the ceiling and the yield are both
+  # inflated, and what looks like ability is one dataset remembered along two paths.
+  Gate:
+    has:
+      gate_id:            {type: string, required: true}
+      #: 1 if the gate model was trained on data we also trained on.
+      shares_training_data: {type: integer}
+      #: 1 if activity labels come from experimental measurement rather than our own scoring.
+      activity_is_measured: {type: integer}
+      #: 1 if the split is by molecular scaffold. Without it, actives for one target are so
+      #: similar that the hit rate is copied from the answer sheet.
+      scaffold_split:     {type: integer}
+
+  MoleculeSet:
+    has:
+      set_id:            {type: string, required: true}
+      n_molecules:       {type: integer}
+      heavy_atom_median: {type: double}
+
+  Paper:
+    has:
+      paper_id:       {type: string, required: true}
+      title:          {type: string}
+      #: 1 if the citation resolves in the registry. A citation that does not resolve is dropped
+      #: whole, and this is what makes that checkable rather than promised.
+      resolves:       {type: integer}
+      redistributable: {type: integer}
+
+  Model:
+    has:
+      model_id:        {type: string, required: true}
+      #: 1 if the weights come from an official channel with a licence that survives inspection.
+      #: A veto independent of any metric: how fast it runs and how well it scores do not enter.
+      licence_clear:   {type: integer}
+      minutes_per_pocket: {type: double}
+
+  Target:
+    has:
+      target_id: {type: string, required: true}
+
+  # What each role hands on. roles.md lists these field by field under "你的输出", and every
+  # one of them is required — several with the words "为空则拒收". Declaring them here rather
+  # than checking them in endpoint code means the contract is in the ontology a reviewer reads,
+  # and one place decides what a complete handoff is.
+
+  BiologistOutput:
+    has:
+      output_id:                 {type: string,  required: true}
+      target_id:                 {type: string,  required: true}
+      hypothesis_id:             {type: string,  required: true}
+      #: The executable predicate. Empty is refused, not filed.
+      falsifier:                 {type: string,  required: true}
+      #: How many cited papers resolved in the registry. A citation that does not resolve is
+      #: dropped whole, so this is the count after dropping.
+      citations_resolved:        {type: integer, required: true}
+      leakage_conclusion:        {type: string,  required: true}
+      #: The class of evidence the confidence rests on — 1 ours · 2 external · 3 paper · 4 derived.
+      confidence_evidence_class: {type: integer, required: true}
+
+  ChemistOutput:
+    has:
+      output_id:            {type: string,  required: true}
+      #: pass | fail | pass_with_warnings
+      verdict:              {type: string,  required: true}
+      warnings_n:           {type: integer, required: true}
+      #: The parallel arm — molecules that clear the chemistry screen — reported beside the full
+      #: set, never in place of it.
+      screened_subset_size: {type: integer, required: true}
+      guardrail_chemistry:  {type: string,  required: true}
+      guardrail_diversity:  {type: string,  required: true}
+
+  AIExpertOutput:
+    has:
+      output_id:       {type: string,  required: true}
+      plan:            {type: string,  required: true}
+      #: One of the four, and only from the set code computed. Outside it, refused.
+      disposition:     {type: string,  required: true}
+      #: Rows in the evidence table. Each row carries a value, its class, its sample size and
+      #: its source; a table with no rows is not a table.
+      evidence_rows:   {type: integer, required: true}
+      baseline:        {type: double,  required: true}
+      target_number:   {type: double,  required: true}
+      caveats:         {type: string,  required: true}
+      paper_screen:    {type: string,  required: true}
+
+# ── V ────────────────────────────────────────────────────────────────────────────────────
+# The authority matrix. A role that has no signature for an act cannot perform it — not as a
+# rule that rejects it, but as a sentence the ontology has no way to write.
+verbs:
+
+  # — the biologist's, and only the biologist's —
+  - sig:    "judge_target_relevance(subject: Biologist, object: MoleculeSet, complement: Target)"
+    act:    institutional
+    as:     JudgeTargetRelevance
+    effect: "the molecules are judged for relevance to this target"
+
+  - sig:    "define_real_contact(subject: Biologist, object: Metric)"
+    act:    institutional
+    as:     DefineRealContact
+    effect: "what counts as a genuine interaction is fixed for this metric"
+
+  - sig:    "state_hypothesis(subject: Biologist, object: Hypothesis)"
+    act:    communicative
+    as:     StateHypothesis
+    guard:  "falsifier_len >= 1"
+    effect: "a target hypothesis is put forward with the condition that would falsify it"
+
+  - sig:    "check_leakage(subject: Biologist, object: Gate)"
+    act:    institutional
+    as:     CheckLeakage
+    effect: "the gate is cleared or refused on leakage grounds"
+
+  # — the chemist's, and only the chemist's —
+  - sig:    "judge_synthesizability(subject: Chemist, object: MoleculeSet)"
+    act:    institutional
+    as:     JudgeSynthesizability
+    effect: "the set is judged on whether it could be made"
+
+  - sig:    "report_geometry(subject: Chemist, object: Measurement)"
+    act:    communicative
+    as:     ReportGeometry
+    guard:  "statistic <= 1"
+    effect: "a geometry or strain figure is reported"
+
+  - sig:    "report_validity_rate(subject: Chemist, object: Measurement)"
+    act:    communicative
+    as:     ReportValidityRate
+    guard:  "ruler >= 1"
+    effect: "a chemical validity rate is reported, with the ruler it was measured by"
+
+  # — the AI expert's, and only the AI expert's —
+  - sig:    "measure_metric(subject: AIExpert, object: Metric, complement: MoleculeSet)"
+    act:    factual
+    as:     MeasureMetric
+    effect: "the metric is measured on this set"
+
+  - sig:    "publish_report(subject: AIExpert, object: Report)"
+    act:    communicative
+    as:     PublishReport
+    effect: "the report is handed on"
+
+  - sig:    "screen_licence(subject: AIExpert, object: Model)"
+    act:    institutional
+    as:     ScreenLicence
+    guard:  "licence_clear >= 1"
+    effect: "the model is admitted to the candidate pool"
+
+  # — the handoffs, which are relations —
+  - sig:  "hands_hypothesis_to(subject: Biologist, object: AIExpert)"
+    act:  communicative
+    via:  null
+
+  - sig:  "hands_molecules_to(subject: AIExpert, object: Chemist)"
+    act:  communicative
+    via:  null
+
+  - sig:  "hands_verdict_to(subject: Chemist, object: AIExpert)"
+    act:  communicative
+    via:  null
+
+  - sig:  "hands_numbers_to(subject: AIExpert, object: Biologist)"
+    act:  communicative
+    via:  null
+
+  # — declared and belonging to no role. Deciding a disposition, freezing the protocol and
+  #   calling a halt are named in roles.md as nobody's, and an act with no subject is how the
+  #   ontology says so: there is no one it can be attributed to.
+  - sig:  "decide_disposition()"
+    act:  institutional
+  - sig:  "freeze_protocol()"
+    act:  institutional
+  - sig:  "call_halt()"
+    act:  institutional
+
+# ── State predicates over attributes ─────────────────────────────────────────────────────
+predicates:
+  - "ceiling_is_a_warning(r)   := ceiling > 95"
+  - "size_matched_absent(r)    := size_matched_n < 1"
+  - "states_main_metric(r)     := states_main_metric >= 1"
+  - "mixes_classes(r)          := mixes_evidence_classes >= 1"
+  - "reports_intent(r)         := pockets_measured < 1"
+  - "no_falsifier(h)           := falsifier_len < 1"
+  - "gate_is_contaminated(g)   := shares_training_data >= 1"
+  - "activity_not_measured(g)  := activity_is_measured < 1"
+  - "no_scaffold_split(g)      := scaffold_split < 1"
+  - "reported_as_mean(m)       := statistic >= 2"
+  - "ruler_unnamed(m)          := ruler < 1"
+  - "licence_unclear(m)        := licence_clear < 1"
+
+# ── N ────────────────────────────────────────────────────────────────────────────────────
+norms:
+
+  - rule: "Forbidden(publish_report(a, r)) when size_matched_absent(r)"
+    name: MainMetricNeedsSizeMatchedSubset
+    why: >
+      A full-set mean has been shown on our own data to pick the wrong winner: one model leads by
+      11 points on the mean, trails by 13 once normalised for molecule size, and draws to within
+      0.2% on the size-matched subset. Its apparent lead came from generating molecules 27%
+      larger. The subset is a mandatory companion, not an optional analysis.
+
+  - rule: "Forbidden(publish_report(a, r)) when ceiling_is_a_warning(r)"
+    name: CeilingAbove95IsAWarning
+    why: >
+      A ceiling near 100% says the gate is loose, or the gate and the data share an origin. It is
+      reported as a warning; it is not reported as a result.
+
+  - rule: "Forbidden(publish_report(a, r)) when mixes_classes(r)"
+    name: EvidenceClassesMayNotShareATable
+    why: >
+      Our own measurements and figures reported by a paper may both appear, in separate columns
+      that name the class. Placed in one comparison they produce an artefact, because the
+      benchmarks and protocols behind them differ.
+
+  - rule: "Forbidden(publish_report(a, r)) when reports_intent(r)"
+    name: ReportPocketsCoveredNotPocketsIntended
+    why: >
+      Coverage actually measured is smaller than the frozen protocol names. The intended figure
+      is not the achieved one and may not be reported in its place.
+
+  - rule: "Forbidden(state_hypothesis(b, h)) when no_falsifier(h)"
+    name: HypothesisWithoutAFalsifierIsRefused
+    why: >
+      The falsification condition is consumed: once the numbers exist, code evaluates it and the
+      verdict is written into the record. A hypothesis with nothing to evaluate turns the whole
+      arrangement into a report generator.
+
+  - rule: "Forbidden(check_leakage(b, g)) when gate_is_contaminated(g)"
+    name: GateMayNotHaveSeenOurData
+    why: >
+      Once the gate and the training data share an origin, both the ceiling and the yield inflate
+      together. That is not ability; it is one dataset remembered along two paths.
+
+  - rule: "Forbidden(check_leakage(b, g)) when activity_not_measured(g)"
+    name: ActivityMustBeExperimental
+    why: >
+      Training on our own scores produces a model that generates molecules in the scorer's blind
+      spot, which is the one failure this whole pipeline cannot detect.
+
+  - rule: "Forbidden(check_leakage(b, g)) when no_scaffold_split(g)"
+    name: SplitByScaffold
+    why: >
+      Actives against one target are highly similar to each other. Without a scaffold split the
+      hit rate measures memorisation.
+
+  - rule: "Forbidden(report_geometry(c, m)) when reported_as_mean(m)"
+    name: StrainEnergyIsAMedian
+    why: >
+      Mean and median differ by up to two orders of magnitude here, and the mean is carried by a
+      handful of pathological molecules.
+
+  - rule: "Forbidden(report_validity_rate(c, m)) when ruler_unnamed(m)"
+    name: NameTheRuler
+    why: >
+      One ruler asks whether a string parses into a legal molecule and nearly every model scores
+      close to 100%. The other asks whether bond lengths and angles match crystal statistics, and
+      the same models score 0–11%. A rate without its ruler is not a number.
+
+  - rule: "Forbidden(screen_licence(a, m)) when licence_unclear(m)"
+    name: LicenceIsAVeto
+    why: >
+      Weights of unverifiable provenance are refused regardless of how they score. A fine-tuned
+      product inherits the licence status of what it was fine-tuned from.
+
+  - rule: "Must(judge_synthesizability(c, s))"
+    name: SynthesizabilityHasNoOtherOwner
+    why: >
+      It is the one segment of the funnel that bears directly on usable yield and that no metric
+      covers. Nothing else in the pipeline will report its absence, so the obligation is on the
+      act rather than on a condition — omitting it is the violation.

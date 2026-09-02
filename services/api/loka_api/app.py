@@ -18,7 +18,7 @@ from loka_compiler import CompileError, compile_wqt
 from loka_schemas import TypedQuery
 from pydantic import BaseModel
 
-from .world import World, build_supply_world, build_world_from_env
+from .world import World, build_roles_world, build_supply_world, build_world_from_env
 
 #: Which refusal a grounding failure is. The names are the binder's exception classes, so a
 #: new failure mode surfaces as an unmapped name rather than being quietly folded into an
@@ -136,6 +136,37 @@ class BuildKBRequest(BaseModel):
     #: the socket, and an interrupted caller loses work that was nearly finished. With this set,
     #: a job id comes back at once and ``GET /jobs/{id}`` has the result when it is ready.
     background: bool = False
+
+
+class ActRequest(BaseModel):
+    """May this role perform this act, in this state?"""
+
+    role: str
+    verb: str
+    object: str | None = None
+    #: The attribute values the preconditions and norms are read against. Passed in rather than
+    #: looked up: the caller is running the pipeline and holds the numbers, and a value this
+    #: service inferred would be one the caller could not account for.
+    state: dict[str, Any] = {}
+    kb_id: str = "roles"
+
+
+class OutputRequest(BaseModel):
+    """What a role hands on, checked against the fields its contract names."""
+
+    role: str
+    payload: dict[str, Any] = {}
+    citations: list[str] = []
+    kb_id: str = "roles"
+
+
+class FalsifyRequest(BaseModel):
+    condition: str
+    measurements: dict[str, Any] = {}
+
+
+class TargetRequest(BaseModel):
+    baseline: float
 
 
 class ReachRequest(BaseModel):
@@ -296,10 +327,11 @@ def create_app(world: World | None = None) -> FastAPI:
     # the world carries — but this ontology lived only behind its own endpoints, so nothing
     # could reach it that way. Registering it is the whole of the change; `kb_id: "supply"`
     # now goes through the same chain as any built knowledge base.
-    try:
-        app.state.kb_worlds["supply"] = build_supply_world()
-    except Exception as exc:  # noqa: BLE001 - a missing dataset must not stop the service
-        print(f"[world] supply world not registered: {exc}")
+    for name, build in (("supply", build_supply_world), ("roles", build_roles_world)):
+        try:
+            app.state.kb_worlds[name] = build()
+        except Exception as exc:  # noqa: BLE001 - a missing dataset must not stop the service
+            print(f"[world] {name} world not registered: {exc}")
     app.state.kb = KB()  # KB.DATA / KB.METHODS; grows as queries are answered
 
     from .ontology_store import OntologyRecord, OntologyStore
@@ -804,6 +836,140 @@ def create_app(world: World | None = None) -> FastAPI:
             "requires_narrowing": narrowing,
             "traversable": all(r.via for r, _ in path),
         }
+
+    # ── the three-role contract ──────────────────────────────────────────────────────────
+    def _roles_world() -> World:
+        w = app.state.kb_worlds.get("roles")
+        if w is None:
+            raise HTTPException(
+                status_code=503,
+                detail="the roles ontology is not registered on this deployment",
+            )
+        return w
+
+    @app.post("/act")
+    def act_endpoint(req: ActRequest) -> dict[str, Any]:
+        """Whether this role may perform this act, and if not, which of two reasons.
+
+        The two are not the same and a caller acts on the difference. **Out of role** means the
+        ontology has no signature in which this role fills the subject: the act is not something
+        it can do badly, it is something it cannot say. **Forbidden** means the signature exists
+        and a norm speaks against it in this state — a rule, which names itself and its reason.
+        """
+        from .actions import _deontic_status, _eval_guard
+
+        w = _roles_world() if req.kb_id == "roles" else app.state.kb_worlds.get(req.kb_id)
+        if w is None:
+            raise HTTPException(status_code=404, detail=f"unknown kb_id: {req.kb_id}")
+        engine = w.engine
+        verb = req.verb.upper()
+
+        action = next(
+            (a for a in engine.action_types() if a.verb == verb), None
+        )
+        if action is None:
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    f"no act named {req.verb!r} in ontology {engine.version}; "
+                    f"declared: {sorted({a.verb.lower() for a in engine.action_types()})}"
+                ),
+            )
+        target = req.object or action.target
+
+        binding = engine.check_binding(verb, req.role, target)
+        if not binding.ok:
+            return {
+                "act": req.verb,
+                "role": req.role,
+                "permitted": False,
+                "code": "out_of_role",
+                "reason": binding.reason,
+                "ontology_version": engine.version,
+            }
+
+        guard_status = _eval_guard(action.guard, req.state)
+        deontic, norm, conflict = _deontic_status(w, action.name, req.state)
+        rationale = next(
+            (n.rationale for n in engine.norms_for(action.name) if n.name == norm), ""
+        )
+
+        return {
+            "act": req.verb,
+            "role": req.role,
+            "object": target,
+            "permitted": deontic != "forbidden",
+            "code": "forbidden" if deontic == "forbidden" else deontic,
+            "deontic_status": deontic,
+            "norm": norm,
+            "why": rationale.strip() or None,
+            "normative_conflict": list(conflict),
+            "guard": action.guard or None,
+            "guard_status": guard_status,
+            # Never executed on this call, whatever the verdict. A permitted act is an act a
+            # person may now perform; it is not one this service performed.
+            "requires_confirmation": True,
+            "ontology_version": engine.version,
+        }
+
+    @app.post("/output")
+    def output_endpoint(req: OutputRequest) -> dict[str, Any]:
+        """Whether a handoff carries every field its role's contract names.
+
+        The field list is not in this function. It is the required attributes of that role's
+        output type in the ontology, so what counts as a complete handoff is read from the
+        document a reviewer reads rather than from code they would have to be shown.
+        """
+        from .roles import load_registry, output_entity_for, resolve_citations
+
+        engine = _roles_world().engine
+        entity = output_entity_for(req.role)
+        if entity is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"no output contract for role {req.role!r}; "
+                       f"declared: {sorted(output_entity_for.__globals__['_ROLE_OUTPUT'])}",
+            )
+
+        missing = engine.validate_values(entity, req.payload, allow_unknown=False)
+        citations = resolve_citations(req.citations, load_registry()) if req.citations else None
+
+        # An unresolvable citation is refused rather than warned about: roles.md says such a
+        # citation is dropped whole, and a handoff that rests on one is resting on nothing.
+        bad_citation = bool(citations and citations["n_unresolved"])
+
+        return {
+            "role": req.role,
+            "contract": entity,
+            "accepted": not missing and not bad_citation,
+            "problems": list(missing),
+            "citations": citations,
+            "required_by_contract": sorted(
+                n for n, p in engine.properties_of(entity).items() if p.required
+            ),
+            "ontology_version": engine.version,
+        }
+
+    @app.post("/target-number")
+    def target_number_endpoint(req: TargetRequest) -> dict[str, Any]:
+        """X + (100 − X)/3 — the one derivation roles.md fixes exactly."""
+        from .roles import target_number
+
+        try:
+            return target_number(req.baseline)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/falsify")
+    def falsify_endpoint(req: FalsifyRequest) -> dict[str, Any]:
+        """Evaluate a falsification predicate against measured values.
+
+        Unevaluable is its own answer. A condition this cannot read is neither satisfied nor
+        refuted, and reporting it as either would be deciding something the code cannot see.
+        """
+        from .roles import evaluate_falsifier
+
+        return evaluate_falsifier(req.condition, req.measurements)
 
     @app.post("/supply/reach")
     def supply_reach(req: ReachRequest) -> dict[str, Any]:
